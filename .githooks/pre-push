@@ -1,0 +1,33 @@
+#!/bin/sh
+# Pre-push gate: nothing leaves this repository until the outbound gate has read the
+# tree that would be pushed AND every commit message and author line in the history.
+# The gate lives in the company workspace, two levels above this repository, or wherever
+# CEA_GATE points. A missing gate blocks the push; it never waves it through.
+
+set -u
+
+repo_root="$(git rev-parse --show-toplevel)" || exit 2
+gate="${CEA_GATE:-$repo_root/../../governance/cea_gate.py}"
+python="${CEA_PYTHON:-python}"
+
+if [ ! -f "$gate" ]; then
+  echo "pre-push: outbound gate not found at $gate (set CEA_GATE); refusing to push" >&2
+  exit 1
+fi
+
+stage="$(mktemp -d 2>/dev/null || mktemp -d -t twinscribe-gate)" || exit 2
+trap 'rm -rf "$stage"' EXIT
+
+# 1. the tree as it would arrive on the remote
+git archive --format=tar HEAD | (cd "$stage" && tar -xf -) || { echo "pre-push: archive failed" >&2; exit 2; }
+
+# 2. the history: every message, author and committer line across all refs
+git log --all --format='%H%n%an <%ae>%n%cn <%ce>%n%B%n----' > "$stage/HISTORY.txt" 2>/dev/null
+
+"$python" "$gate" "$stage"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "pre-push: gate returned $rc; push refused" >&2
+  exit 1
+fi
+exit 0
