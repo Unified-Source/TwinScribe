@@ -1,0 +1,21 @@
+# environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# large or derived material: fetched and rendered locally, never committed
+models/
+data/
+results/
+transcripts/
+wheels/
+*.wav
+*.log
+
+# review sessions and scratch renders
+review_session.json
+*.tmp

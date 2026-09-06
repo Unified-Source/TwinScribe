@@ -1,0 +1,67 @@
+twinscribe
+Copyright 2026 Uniflux Technology Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+software except in compliance with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the
+License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+either express or implied. See the License for the specific language governing permissions
+and limitations under the License.
+
+----------------------------------------------------------------------------------------
+Third-party components. Each is used under its own licence, reproduced with its package.
+----------------------------------------------------------------------------------------
+
+Models
+
+  NVIDIA Parakeet TDT 0.6B v2
+    Copyright NVIDIA Corporation. Creative Commons Attribution 4.0 International (CC BY 4.0).
+    https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2
+    Used in int8 ONNX form as exported and distributed by the sherpa-onnx project.
+
+  NVIDIA TitaNet-large speaker embedding model
+    Copyright NVIDIA Corporation. CC BY 4.0.
+    https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_large
+    Used in ONNX form as exported and distributed by the sherpa-onnx project.
+
+  Whisper weights, including large-v3-turbo and Distil-Whisper large-v3
+    Copyright OpenAI and the Distil-Whisper authors. MIT License.
+    Used as CTranslate2 conversions published by Systran and mobiuslabsgmbh.
+
+  Silero VAD
+    Copyright Silero Team. MIT License. https://github.com/snakers4/silero-vad
+
+  pyannote segmentation-3.0
+    Copyright the pyannote.audio authors. MIT License.
+    https://huggingface.co/pyannote/segmentation-3.0
+    Used in ONNX form as exported and distributed by the sherpa-onnx project.
+
+Software
+
+  faster-whisper (MIT), CTranslate2 (MIT), sherpa-onnx (Apache-2.0), onnxruntime (MIT),
+  PyAV (BSD-3-Clause; bundles FFmpeg libraries under their own LGPL/GPL terms as built by
+  the PyAV project), numpy (BSD-3-Clause).
+
+  Qt for Python (PySide6) and Qt
+    Copyright The Qt Company Ltd. GNU Lesser General Public License v3.0.
+    twinscribe links to Qt dynamically and does not modify it. The LGPL permits replacement
+    of the Qt libraries with compatible versions; see https://www.qt.io/licensing.
+
+  OpenAI Whisper English text normaliser
+    Copyright (c) 2022 OpenAI. MIT License. https://github.com/openai/whisper
+    Vendored as plain source with its licence file alongside.
+
+Test material (development and evaluation only; nothing from it ships in the tool)
+
+  AMI Meeting Corpus, meeting ES2002a. University of Edinburgh and the AMI Consortium.
+    CC BY 4.0. https://groups.inf.ed.ac.uk/ami/corpus/
+
+  HarperValleyBank corpus. Gridspace and Stanford CS224S. CC BY 4.0.
+    Wu, Nafziger, Scodary and Maas, arXiv:2010.13929.
+    https://github.com/cricketclub/gridspace-stanford-harper-valley
+
+  LibriSpeech (test-other). Panayotov, Chen, Povey and Khudanpur. CC BY 4.0.
+    https://www.openslr.org/12
