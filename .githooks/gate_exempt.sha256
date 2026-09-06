@@ -1,3 +1,4 @@
 # Verbatim third-party licence texts whose standard wording trips the outbound gate.
 # Digest is of the LF-normalised bytes. A file is skipped only when both path and digest match; an edited copy is gated.
 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE
+b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d  twinscribe/text/_whisper_normalizer/LICENSE

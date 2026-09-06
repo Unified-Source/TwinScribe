@@ -44,6 +44,9 @@ Homepage = "https://github.com/Unified-Source/twinscribe"
 [tool.setuptools.packages.find]
 include = ["twinscribe*"]
 
+[tool.setuptools.package-data]
+twinscribe = ["text/_whisper_normalizer/*.json", "text/_whisper_normalizer/LICENSE", "text/_whisper_normalizer/VENDORED.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
