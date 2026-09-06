@@ -2,3 +2,4 @@
 # Digest is of the LF-normalised bytes. A file is skipped only when both path and digest match; an edited copy is gated.
 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE
 b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d  twinscribe/text/_whisper_normalizer/LICENSE
+6607f948be9824d2e1b2fa2223cd94c06c45afa4e05ea0e3d5e1f2bdffde2465  twinscribe/text/_whisper_normalizer/english.json
