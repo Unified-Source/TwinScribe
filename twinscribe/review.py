@@ -23,7 +23,7 @@ REVIEW_SCHEMA = "twinscribe.review.v1"
 
 # Tolerance for the span-length comparison, so that a span whose end points come from
 # decimal word times (for example 2.0 - 1.2) still counts as exactly 0.8 s long.
-_LENGTH_EPS = 1e-9
+_LENGTH_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -148,7 +148,7 @@ def build_review(
     detector_index = _Intervals((w.start, w.end) for w in detector_sorted)
     marks: list[Mark] = []
     for span_start, span_end in _silent_spans(published, audio_s):
-        if (span_end - span_start) + _LENGTH_EPS < min_silence_s:
+        if (span_end - span_start) + _LENGTH_TOLERANCE < min_silence_s:
             continue
         inside = [detector_sorted[i] for i in detector_index.overlapping(span_start, span_end)]
         if len(inside) < min_detector_words:
