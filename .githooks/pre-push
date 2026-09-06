@@ -21,6 +21,26 @@ trap 'rm -rf "$stage"' EXIT
 # 1. the tree as it would arrive on the remote
 git archive --format=tar HEAD | (cd "$stage" && tar -xf -) || { echo "pre-push: archive failed" >&2; exit 2; }
 
+# 1b. verbatim upstream licence texts, pinned by digest of their LF-normalised bytes, are not the
+#     gate's business;
+#     anything whose digest no longer matches is gated like any other file
+exempt="$repo_root/.githooks/gate_exempt.sha256"
+if [ -f "$exempt" ]; then
+  while read -r sum rel; do
+    [ -z "$sum" ] && continue
+    case "$sum" in \#*) continue;; esac
+    f="$stage/$rel"
+    if [ -f "$f" ]; then
+      have="$(tr -d '\r' < "$f" | sha256sum | cut -d' ' -f1)"   # newline-independent
+      if [ "$have" = "$sum" ]; then
+        rm -f "$f"; echo "pre-push: exempt verbatim upstream text $rel"
+      else
+        echo "pre-push: $rel no longer matches its pinned digest; it will be gated" >&2
+      fi
+    fi
+  done < "$exempt"
+fi
+
 # 2. the history: every message, author and committer line across all refs
 git log --all --format='%H%n%an <%ae>%n%cn <%ce>%n%B%n----' > "$stage/HISTORY.txt" 2>/dev/null
 
