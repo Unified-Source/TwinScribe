@@ -3,8 +3,8 @@
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.
 
-**Status: early. The design is measured, the implementation is being built fresh from it.**
-Nothing here is ready to use yet.
+**Status: early. The design is measured; the implementation is built from it and runs end to
+end with synthetic engines. The live engines have not yet run on lab hardware.**
 
 ## What it is for
 
@@ -35,15 +35,42 @@ The full design, the measurements on public corpora, the engine and licence land
 the engineering traps already paid for are in
 [docs/Design_and_Findings_2026-09-06.md](docs/Design_and_Findings_2026-09-06.md).
 
-## What it will produce, per file
+## What it produces, per recording
 
-- a Word document and a plain text file, timestamped and speaker-labelled;
-- a subtitle file, so the transcript plays against the recording line by line;
-- the review list, with a screen for working through it with the audio at each mark;
-- a speaker summary at the top, the word count assigned to each speaker, because a
-  participant can vanish from a transcript while the overall accuracy looks normal;
-- a run record: engines and versions, settings, the file's digest, when it ran, how long it
-  took, and every file that failed and why.
+Beside the recording, named by its stem:
+
+- `.docx` and `.txt`: timestamped, speaker-labelled, with a speaker summary at the top giving
+  the word count assigned to each speaker, because a participant can vanish from a transcript
+  while the overall accuracy looks normal;
+- `.srt`: a subtitle file, so the transcript plays against the recording line by line in any
+  player;
+- `.review.json`: the review list, with a screen for working through it with the audio at
+  each mark;
+- `.run.json`: the run record: engines and versions, settings, the file's digest, when it ran,
+  how long it took, and any failure and why;
+- `.transcript.json`: the document the application reads back and every renderer works from.
+
+## The application
+
+One window, in the manner of a media player: drop recordings or folders in, each plays at
+once, and the ones that have been transcribed show their transcript following the audio, the
+review marks on the timeline and between the lines, and a button that opens the verification
+screen. Choose a quality level, press Transcribe, and the pipeline runs over everything not
+yet done with progress per file. Nothing in the package reaches the network.
+
+```
+python -m twinscribe app [recordings or folders]
+python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER]
+python -m twinscribe check [--verify]
+python -m twinscribe export <transcript.json>
+python -m twinscribe verify <review.json>
+```
+
+Models live in one folder (`TWINSCRIBE_MODELS`, or `models` beside the package);
+`tools/fetch_models.py` fetches them from the sources the catalogue names and pins their
+digests. A folder that runs with nothing installed is described in
+[docs/Portable_Layout.md](docs/Portable_Layout.md). Specifications and the notes recorded
+while building from them are under `docs/specs/`.
 
 ## Components and licences
 
