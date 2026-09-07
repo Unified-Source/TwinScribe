@@ -51,6 +51,31 @@ def job_for(source: Path, models, tmp_path: Path, **overrides) -> Job:
 # ----- paths and discovery ------------------------------------------------------------------
 
 
+def test_digest_reports_progress(tmp_path: Path) -> None:
+    import hashlib
+    import os
+
+    payload = os.urandom(3 * (1 << 20) + 17)
+    target = tmp_path / "big.bin"
+    target.write_bytes(payload)
+    seen: list[float] = []
+    assert audio.sha256_of(target, progress=seen.append) == hashlib.sha256(payload).hexdigest()
+    assert seen and seen[-1] == 1.0 and seen == sorted(seen) and all(0.0 <= f <= 1.0 for f in seen)
+    empty = tmp_path / "empty.bin"
+    empty.write_bytes(b"")
+    seen = []
+    assert audio.sha256_of(empty, progress=seen.append) == hashlib.sha256(b"").hexdigest()
+    assert seen == [1.0]
+
+
+def test_human_size() -> None:
+    from twinscribe.pipeline import human_size
+
+    assert human_size(0) == "0 bytes" and human_size(850) == "850 bytes"
+    assert human_size(850_000) == "850 KB" and human_size(12_400_000) == "12.4 MB"
+    assert human_size(1_200_000_000) == "1.2 GB" and human_size(3 * 10**12) == "3 TB"
+
+
 def test_output_paths_beside_and_in_folder(tmp_path: Path) -> None:
     beside = output_paths(tmp_path / "a" / "call.mp3")
     assert beside.transcript == tmp_path / "a" / "call.transcript.json"

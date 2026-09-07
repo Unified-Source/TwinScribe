@@ -332,10 +332,20 @@ def _decode_source(job: Job, reporter: _Reporter, digest: str) -> tuple[Path, bo
     folder = job.work_folder if job.work_folder is not None else work_dir()
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{source.stem}.{digest[:12]}.16k.wav"
-    reporter.report("decode", 0.0)
+    reporter.report("decode", 0.0, f"Decoding the audio ({human_size(source.stat().st_size)} to read)")
     audio.decode_to_wav(source, target)
     reporter.report("decode", 1.0)
     return target, True
+
+
+def human_size(size: int) -> str:
+    """A file size for a message: 850 KB, 12.4 MB, 1.2 GB."""
+    value = float(size)
+    for unit in ("bytes", "KB", "MB", "GB", "TB"):
+        if value < 1000.0 or unit == "TB":
+            return f"{int(value)} {unit}" if unit == "bytes" else f"{value:.1f} {unit}".replace(".0 ", " ")
+        value /= 1000.0
+    return f"{value:.1f} TB"
 
 
 def _preset_settings(profile: Profile, backend: str | None = None) -> dict[str, Any]:
@@ -386,7 +396,7 @@ def process_file(
     temporary = False
     try:
         reporter.report("digest", 0.0)
-        digest = audio.sha256_of(source)
+        digest = audio.sha256_of(source, progress=reporter.stage_fn("digest"))
         size = source.stat().st_size
         reporter.report("digest", 1.0)
 

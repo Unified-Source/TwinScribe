@@ -422,6 +422,27 @@ def test_close_saves_the_library(app: QApplication, tmp_path: Path, home: Path, 
     dispose(app, again)
 
 
+def test_attach_log_only_without_console(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    assert app_main.attach_log(tmp_path) is None
+    saved_hook = sys.excepthook
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    path = app_main.attach_log(tmp_path)
+    handle = sys.stdout
+    try:
+        assert path == tmp_path / "twinscribe.log" and handle is not None and sys.stderr is handle
+        print("hello from the window")
+        sys.excepthook(ValueError, ValueError("boom"), None)
+    finally:
+        sys.excepthook = saved_hook
+        monkeypatch.undo()
+        handle.close()
+    text = path.read_text(encoding="utf-8")
+    assert "started without a console" in text and "hello from the window" in text and "ValueError: boom" in text
+
+
 def test_parser_and_main_reject_nothing(tmp_path: Path) -> None:
     args = app_main.build_parser().parse_args([str(tmp_path), "--dark", "--shot", "x.png", "--seek", "12.5", "--select", "0"])
     assert args.dark and args.shot == Path("x.png") and args.seek == 12.5 and args.select == 0
