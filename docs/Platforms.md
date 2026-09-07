@@ -18,6 +18,9 @@ shown in the settings, and recorded in every run record, so a run always states 
 
 Wheel availability is as published by each project at the time of writing; the `engines`
 extra installs faster-whisper only where CTranslate2 has a wheel, and sherpa-onnx everywhere.
+The voice detector, the speaker models and the audio tagger that marks silence, music and
+noise all run through sherpa-onnx on the processor on every platform in the table; the tagger
+is small enough that no accelerator is ever used for it.
 
 Checked on the development machine (Windows on ARM): the publisher, the speaker models and the
 ONNX detector natively; the whole CTranslate2 path in an x86-64 environment under the platform's

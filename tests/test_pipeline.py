@@ -104,7 +104,7 @@ def test_output_paths_avoid_stem_collisions(tmp_path: Path) -> None:
 def test_same_stem_recordings_keep_separate_outputs(models, tmp_path: Path) -> None:
     folder = tmp_path / "media"
     folder.mkdir()
-    wav = audio.synthetic_wav(folder / "call.wav", 3.0)
+    wav = audio.synthetic_wav(folder / "call.wav", 30.0)      # as long as the fixture transcript
     (folder / "call.mp4").write_bytes(b"not a video")
     result = process_file(job_for(wav, models, tmp_path), engines=make_engines())
     assert result.outputs.transcript == folder / "call.wav.transcript.json"
@@ -144,7 +144,7 @@ def test_process_file_writes_six_outputs(recording: Path, models, tmp_path: Path
         progress=reports.append,
         engines=make_engines(calls=calls),
     )
-    assert calls == ["publisher", "detector", "diarizer"]
+    assert calls == ["publisher", "detector", "tagger", "diarizer"]
     for path in result.outputs.all:
         assert path.is_file(), path
         assert path.parent == recording.parent
@@ -172,8 +172,14 @@ def test_process_file_writes_six_outputs(recording: Path, models, tmp_path: Path
     assert record["settings"]["plan"]["platform"] == "windows-x86_64" and record["settings"]["parallel_engines"] is False
     assert record["settings"]["detector_word_timing"] == "token"
     assert record["failures"] == []
-    assert record["audio_s"] == 30.0 and record["transcribe_s"] == pytest.approx(1.5 + 1.5 + 0.9)
-    assert set(record["versions"]) >= {"parakeet_tdt_lib", "whisper_ct2_lib", "sherpa_onnx"}
+    assert record["audio_s"] == 30.0 and record["transcribe_s"] == pytest.approx(1.5 + 1.5 + 0.9 + 0.1)
+    assert set(record["versions"]) >= {"parakeet_tdt_lib", "whisper_ct2_lib", "sherpa_onnx", "tagger_lib"}
+    assert record["engines"]["tagging"]["engine"] == "fake_tagging"
+    scene_facts = record["settings"]["scenes"]
+    # Five pause windows (the ten-second pause is cut in two) and four utterances were tagged.
+    assert scene_facts["count"] == 0 and scene_facts["tagged"] is True and scene_facts["regions_tagged"] == 9
+    assert scene_facts["suppressed_publisher_words"] == 0 and scene_facts["suppressed_detector_words"] == 0
+    assert doc["scenes"] == [] and doc["non_speech"]["tagged"] is True
 
     text = result.outputs.text.read_text(encoding="utf-8")
     assert "[0:00.5] Speaker 1: good morning this is the first call" in text
@@ -227,7 +233,7 @@ def test_onnx_detector_is_dispatched_without_ctranslate2(recording: Path, models
         job_for(recording, models, tmp_path, plan=make_plan_for(ct2=False)),
         engines=make_engines(calls=calls, kwargs_seen=seen),
     )
-    assert calls == ["publisher", "detector_onnx", "diarizer"]
+    assert calls == ["publisher", "detector_onnx", "tagger", "diarizer"]
     assert seen["detector_onnx"] == {"provider": "cpu"}
     assert result.run_record["settings"]["detector_backend"] == "onnx"
     assert result.run_record["settings"]["detector_model"] == KEY_WHISPER_TURBO_ONNX
@@ -257,7 +263,7 @@ def test_engines_run_in_parallel_when_the_plan_separates_them(recording: Path, m
         progress=reports.append,
         engines=make_engines(calls=calls),
     )
-    assert set(calls) == {"publisher", "detector", "diarizer"}
+    assert set(calls) == {"publisher", "detector", "tagger", "diarizer"}
     assert result.run_record["settings"]["parallel_engines"] is True
     fractions = [r.fraction for r in reports]
     assert fractions == sorted(fractions) and fractions[-1] == 1.0
@@ -271,6 +277,77 @@ def test_missing_backend_library_is_a_clear_error(recording: Path, models, tmp_p
             job_for(recording, models, tmp_path, plan=make_plan_for(sherpa=False), detector=KEY_WHISPER_TURBO_ONNX),
             engines=make_engines(),
         )
+
+
+def test_scenes_mark_non_speech_and_set_words_aside(recording: Path, models, tmp_path: Path) -> None:
+    from twinscribe.scenes import Event
+
+    # The fixture's third pause (13.9 to 24.0) is heard as music; everything else is speech.
+    def events(region: tuple[float, float]) -> list[Event]:
+        start, end = region
+        if start >= 13.8 and end <= 24.1:
+            return [Event("Music", 0.8), Event("Synthesizer", 0.4), Event("Speech", 0.03)]
+        return [Event("Speech", 0.9)]
+
+    result = process_file(job_for(recording, models, tmp_path), engines=make_engines(tagger_events=events))
+    doc = result.document
+    assert [(round(s["start"], 1), round(s["end"], 1), s["kind"]) for s in doc["scenes"]] == [(13.9, 24.0, "music")]
+    # The detector's two words inside the music no longer raise a mark; the first pause still does.
+    assert result.marks == 1 and doc["marks"][0]["span_start"] == 3.5
+    assert doc["non_speech"]["suppressed_detector_words"] == 2 and doc["non_speech"]["suppressed_publisher_words"] == 0
+    assert doc["non_speech"]["seconds_by_kind"] == {"music": pytest.approx(10.1)}
+    text = result.outputs.text.read_text(encoding="utf-8")
+    assert "[0:13.9] (music, no speech, 10 s)" in text and "Without speech: music 10 s" in text
+    assert "2 words the second engine placed inside silence, music or noise were left out of the review list" in text
+    srt = result.outputs.subtitles.read_text(encoding="utf-8")
+    assert "00:00:13,900 --> 00:00:24,000\n[music]" in srt
+    record = result.run_record["settings"]["scenes"]
+    assert record["count"] == 1 and record["list"][0]["kind"] == "music" and record["suppressed_utterances"] == []
+
+
+def test_an_utterance_without_speech_is_set_aside_and_recorded(recording: Path, models, tmp_path: Path) -> None:
+    from twinscribe.scenes import Event
+
+    # The publisher's first utterance (0.5 to 3.5, seven words) is heard as music with no speech.
+    def events(region: tuple[float, float]) -> list[Event]:
+        start, end = region
+        if abs(start - 0.5) < 0.01 and abs(end - 3.5) < 0.01:
+            return [Event("Music", 0.9), Event("Speech", 0.02)]
+        return [Event("Speech", 0.9)]
+
+    result = process_file(job_for(recording, models, tmp_path), engines=make_engines(tagger_events=events))
+    doc = result.document
+    assert [s["kind"] for s in doc["scenes"]] == ["music"] and doc["scenes"][0]["start"] == 0.5
+    assert doc["non_speech"]["suppressed_publisher_words"] == 7
+    assert sum(s["words"] for s in doc["speakers"]) == 11
+    assert "good morning" not in result.outputs.text.read_text(encoding="utf-8")
+    assert "7 words the published engine wrote inside music or noise were set aside" in result.outputs.text.read_text(encoding="utf-8")
+    suppressed = result.run_record["settings"]["scenes"]["suppressed_utterances"]
+    assert len(suppressed) == 1 and suppressed[0]["text"].startswith("good morning") and suppressed[0]["words"] == 7
+    review = json.loads(result.outputs.review.read_text(encoding="utf-8"))
+    assert len(review["transcript"]) == 11
+
+
+def test_without_a_tagging_model_the_level_alone_decides(recording: Path, models, tmp_path: Path) -> None:
+    from twinscribe.models import KEY_AUDIO_TAGGER, find_models
+
+    for child in (models.root / KEY_AUDIO_TAGGER).iterdir():
+        child.unlink()
+    (models.root / KEY_AUDIO_TAGGER).rmdir()
+    store = find_models(models.root)
+    assert not store.has(KEY_AUDIO_TAGGER)
+    calls: list[str] = []
+    result = process_file(job_for(recording, store, tmp_path), engines=make_engines(calls=calls))
+    assert "tagger" not in calls
+    doc = result.document
+    # The synthetic recording is a loud tone throughout, so every pause of two seconds or more
+    # is sound of an unknown kind, and the detector words inside them raise no marks.
+    assert doc["non_speech"]["tagged"] is False
+    assert [s["kind"] for s in doc["scenes"]] == ["sound"] * 4
+    assert result.marks == 0
+    assert "sound, no speech" in result.outputs.text.read_text(encoding="utf-8")
+    assert result.run_record["settings"]["scenes"]["tagger_model"] is None
+    assert "tagging" not in result.run_record["engines"]
 
 
 def test_process_file_into_another_folder_uses_absolute_audio(recording: Path, models, tmp_path: Path) -> None:

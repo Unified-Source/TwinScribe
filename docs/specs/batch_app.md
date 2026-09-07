@@ -27,7 +27,9 @@ package reaches the network; models load from a local folder.
 
 - A models root holds one folder per model. The catalogue names each folder, the files it must
   contain, the licence, the credit and the upstream source (a fetch tool outside the package
-  uses the sources). Roles: publisher, detector, voice detector, segmentation, embedding.
+  uses the sources). Roles: publisher, detector, voice detector, segmentation, embedding, and
+  tagging (the audio tagger of section 3a, which no level requires: the pipeline runs without
+  it and marks silence by level alone).
 - `find_models(root)` reports which folders are complete; `verify_store(root)` digests every
   required file against a lock file written when the files were fetched, so a store is
   checked against what was downloaded rather than trusted.
@@ -49,6 +51,34 @@ breaks at a pause over 1.5 s or at sixty words. The speaker summary counts words
 label in order of first appearance, with unlabelled words last. Display names default to
 Speaker 1, Speaker 2, ... and can be changed.
 
+## 3a. Non-speech scenes
+
+The published engine decodes only the utterances the voice detector finds, so it cannot write
+into a pause; but the voice detector passes music and some noise as speech, and the second
+engine writes freely inside both, which puts review marks on music and on noise. After both
+engines have run, `twinscribe/scenes.py` classifies the pauses between utterances (two
+seconds or longer, in windows of at most ten seconds) and the utterances themselves (one and a
+half seconds or longer):
+
+- by level first: a stretch below -50 dBFS is silence whatever a model says;
+- then by the audio tagger (`engines/tagging.py`, an AudioSet model through sherpa-onnx, on
+  the processor) when its model is present: a pause with speech probability at or above 0.3 is
+  speech after all and yields nothing (the review list is the place for it); otherwise it is
+  music (music family at or above 0.35 and not below the noise family), background noise
+  (noise, weather, water, traffic, room and crowd classes at or above 0.2), or sound of another
+  kind, named by the top class when it is confident;
+- without the tagger, a pause above the silence level is sound of an unknown kind.
+
+A scene is written into the transcript as a marker naming what is there instead of speech. The
+detector's words whose middle falls inside a scene are left out before the review list is
+built. An utterance the tagger is confident holds no speech (speech below 0.15 and music or
+noise at 0.5 or more) has its words set aside: they leave the transcript and are listed, with
+the utterance's span, in the run record, so nothing is dropped without trace. A voiced
+utterance is never set aside on level alone, because quiet speech is speech; and no utterance
+shorter than one and a half seconds is judged, because a single short word gives the tagger
+too little to go on. Scenes of one kind that touch are one scene. The thresholds are recorded
+in the run record.
+
 ## 4. Outputs per recording
 
 Beside the recording (or in one chosen folder), named by the recording's stem, or by its full
@@ -57,16 +87,23 @@ file name when another recording with the same stem sits beside it (`call.mp3` b
 
 1. `<stem>.transcript.json` (schema `twinscribe.transcript.v1`): source name, digest and size;
    duration; engines; speakers with names, word and second counts; lines with their words and
-   times; the review marks without the detector's text; a waveform overview for the timeline;
-   the review count and share. Every other renderer is a pure function of this document.
-2. `<stem>.txt`: header (file, duration, engines, speaker summary, review pointer, the draft
-   notice), then `[m:ss.t] Name: words` per line, a blank line between speakers.
+   times; the review marks without the detector's text; the non-speech scenes (span, kind,
+   label, confidence) with their totals and the counts of words set aside from each engine; a
+   waveform overview for the timeline; the review count and share. Every other renderer is a
+   pure function of this document.
+2. `<stem>.txt`: header (file, duration, engines, speaker summary, review pointer, the seconds
+   without speech by kind, the words set aside, the draft notice), then `[m:ss.t] Name: words`
+   per line, a blank line between speakers, and `[m:ss.t] (music, no speech, 12 s)` on a line of
+   its own where there is silence, music, background noise or other sound.
 3. `<stem>.docx`: the same content as a Word document written with the standard library only
    (zip of OOXML parts): title, engine facts, a speaker table, one paragraph per line with a
-   hanging indent, the review note. The document properties carry the author from the
-   settings and this application's name; no other tool is named.
+   hanging indent, scene markers as muted italic paragraphs, the review note. The document
+   properties carry the author from the settings and this application's name; no other tool
+   is named.
 4. `<stem>.srt`: cues cut at word boundaries (at most 84 characters or 7 seconds), every cue
-   prefixed with the speaker's name, so that any player loads the transcript beside the media.
+   prefixed with the speaker's name, so that any player loads the transcript beside the media;
+   a scene of music, noise or other sound lasting two seconds or more gets a bracketed cue
+   (`[music]`, `[background noise]`, `[sound: Siren]`) over its span; silence gets none.
 5. `<stem>.review.json`: the review set of `review.md`, with the audio path relative when the
    review set sits beside the recording and absolute otherwise.
 6. `<stem>.run.json`: the run record of `review.md`, with both engines, the speaker models,
@@ -80,7 +117,8 @@ words stay unlabelled.
 ## 5. Pipeline and batch
 
 Per recording: digest; decode to 16 kHz mono through ffmpeg unless the file already is; run the
-publisher; run the detector; label speakers; build the review list; write the outputs. Progress
+publisher; run the detector; mark the non-speech scenes (section 3a); label speakers; build
+the review list; write the outputs. Progress
 is reported as an overall fraction with the stage named, using the engines' progress callbacks;
 a cancel check stops within one engine progress step. A batch runs recordings one after
 another and never stops for a failure. `discover_media(paths)` lists the audio and video files
@@ -140,7 +178,9 @@ transcript recording that its word times are approximate.
   view (a manual scroll pauses following for a few seconds; the follow button toggles it).
 - Gap markers between the lines name the spans the review list flagged, with the count of
   words the second engine heard there and never their text; clicking one plays the span and
-  pauses at its end. A resolution from a review session is shown under its marker.
+  pauses at its end. A resolution from a review session is shown under its marker. Scene
+  markers, muted, name the stretches without speech (silence, music, background noise, other
+  sound) with their span; clicking one seeks to its start.
 - Clicking a line's time seeks to it; double-clicking a line seeks to it; clicking the
   timeline seeks.
 - Keys: Space play or pause; Left and Right nudge five seconds; J and K play the next and

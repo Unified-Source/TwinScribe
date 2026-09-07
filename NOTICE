@@ -39,6 +39,12 @@ Models
     https://huggingface.co/pyannote/segmentation-3.0
     Used in ONNX form as exported and distributed by the sherpa-onnx project.
 
+  CED audio tagging model (CED-mini)
+    Copyright the CED authors. Apache License 2.0. https://github.com/RicherMans/CED
+    Used in int8 ONNX form as exported and distributed by the sherpa-onnx project. Its class
+    labels are the AudioSet ontology, CC BY 4.0. Marks silence, music and background noise;
+    optional.
+
 Software
 
   faster-whisper (MIT), CTranslate2 (MIT), sherpa-onnx (Apache-2.0), onnxruntime (MIT),

@@ -10,12 +10,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.transcript_doc import speaker_names
+from twinscribe.outputs.transcript_doc import scene_tag, speaker_names
 
 MAX_CUE_CHARS = 84
 MAX_ROW_CHARS = 42
 MAX_CUE_SECONDS = 7.0
 MIN_CUE_SECONDS = 1.0
+# Silence needs no cue; the other scenes get one, when at least this long.
+SCENE_CUE_KINDS: frozenset[str] = frozenset({"music", "noise", "sound"})
+MIN_SCENE_CUE_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -98,7 +101,8 @@ def build_cues(
     chunks of one line are of similar size rather than a full cue followed by a one-word tail.
     Every cue is prefixed with the name of the speaker so that a viewer who joins mid-way knows
     who is speaking. A cue shorter than min_seconds is lengthened, up to the start of the next
-    cue.
+    cue. A scene of music, noise or other sound lasting at least two seconds gets a bracketed
+    cue over its span, so a viewer knows that nothing is being said; silence gets none.
     """
     if max_chars < 8 or max_seconds <= 0.0 or min_seconds < 0.0:
         raise ValueError("max_chars must be at least 8, max_seconds positive, min_seconds not negative")
@@ -114,6 +118,11 @@ def build_cues(
         for chunk in _balanced_chunks(words, len(prefix), max_chars, max_seconds):
             text = prefix + " ".join(str(w["w"]).strip() for w in chunk)
             cues.append(Cue(float(chunk[0]["s"]), float(chunk[-1]["e"]), split_rows(text)))
+    for scene in doc.get("scenes", []):
+        start, end = float(scene.get("start", 0.0)), float(scene.get("end", 0.0))
+        if str(scene.get("kind", "")) in SCENE_CUE_KINDS and end - start >= MIN_SCENE_CUE_SECONDS:
+            cues.append(Cue(start, end, scene_tag(scene)))
+    cues.sort(key=lambda cue: (cue.start, cue.end))
 
     adjusted: list[Cue] = []
     for position, cue in enumerate(cues):

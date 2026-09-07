@@ -24,13 +24,14 @@ from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRES
 from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
 from twinscribe.hardware import BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
 from twinscribe.labelling import build_lines, label_words
-from twinscribe.models import KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
+from twinscribe.models import KEY_AUDIO_TAGGER, KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import build_document, overview_peaks, write_document
 from twinscribe.paths import runs_dir, work_dir
 from twinscribe.profiles import Profile, select as select_level
 from twinscribe.review import build_review, review_set, write_review_set
 from twinscribe.runrecord import Failure, RunRecord, utc_now, write_json_atomic
+from twinscribe.scenes import Analysis, analyse, seconds_by_kind, without_segments, words_outside
 
 BATCH_SCHEMA = "twinscribe.batch.v1"
 
@@ -52,8 +53,9 @@ MEDIA_EXTENSIONS: frozenset[str] = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 STAGES: tuple[tuple[str, float], ...] = (
     ("digest", 0.02),
     ("decode", 0.05),
-    ("publisher", 0.33),
-    ("detector", 0.40),
+    ("publisher", 0.32),
+    ("detector", 0.38),
+    ("scenes", 0.03),
     ("speakers", 0.15),
     ("outputs", 0.05),
 )
@@ -62,6 +64,7 @@ STAGE_TITLES: dict[str, str] = {
     "decode": "Decoding the audio",
     "publisher": "Transcribing (published engine)",
     "detector": "Checking (second engine)",
+    "scenes": "Marking silence, music and noise",
     "speakers": "Labelling speakers",
     "outputs": "Writing the outputs",
 }
@@ -217,24 +220,27 @@ class Job:
 class Engines:
     """The engine calls, so that tests can stand synthetic engines in for the real ones.
 
-    detector is the CTranslate2 detector, detector_onnx the sherpa-onnx one.
+    detector is the CTranslate2 detector, detector_onnx the sherpa-onnx one; tagger is the
+    audio tagger behind the scene pass, used only when its model is present.
     """
 
     publisher: Callable[..., Transcript]
     detector: Callable[..., Transcript]
     diarizer: Callable[..., Diarization] | None
     detector_onnx: Callable[..., Transcript] | None = None
+    tagger: Callable[..., Any] | None = None
 
 
 def default_engines() -> Engines:
     """The real engine wrappers; their libraries import lazily when first called."""
-    from twinscribe.engines import diarize, parakeet, whisper_ct2, whisper_onnx
+    from twinscribe.engines import diarize, parakeet, tagging, whisper_ct2, whisper_onnx
 
     return Engines(
         publisher=parakeet.transcribe,
         detector=whisper_ct2.transcribe,
         diarizer=diarize.diarize,
         detector_onnx=whisper_onnx.transcribe,
+        tagger=tagging.tag_regions,
     )
 
 
@@ -476,6 +482,27 @@ def process_file(
             detector = run_detector()
             reporter.report("detector", 1.0)
 
+        reporter.report("scenes", 0.0)
+        samples = audio.read_wav_mono16k(wav)
+        audio_s = float(published.audio_s) if published.audio_s > 0 else float(detector.audio_s)
+        tagging_result: Any = None
+        tag_fn: Callable[[Sequence[tuple[float, float]]], Any] | None = None
+        if engine_set.tagger is not None and models.has(KEY_AUDIO_TAGGER):
+            tagger_dir = models.path(KEY_AUDIO_TAGGER)
+
+            def tag_with_model(regions: Sequence[tuple[float, float]]) -> Any:
+                nonlocal tagging_result
+                tagging_result = engine_set.tagger(
+                    wav, tagger_dir, regions, threads=job.threads, progress=reporter.stage_fn("scenes")
+                )
+                return tagging_result.events
+
+            tag_fn = tag_with_model
+        analysis: Analysis = analyse(samples, published.segments, audio_s, tag_fn)
+        published_kept = without_segments(published, analysis.suppressed)
+        detector_words = words_outside(detector.words, analysis.scenes)
+        reporter.report("scenes", 1.0)
+
         reporter.report("speakers", 0.0, LOADING_TITLES["speakers"])
         diarization: Diarization | None = None
         speaker_failure: str | None = None
@@ -498,24 +525,28 @@ def process_file(
         after = load.snapshot()
         reporter.report("speakers", 0.6)
 
-        words = published.words
-        audio_s = float(published.audio_s) if published.audio_s > 0 else float(detector.audio_s)
+        words = published_kept.words
         labels = label_words(words, diarization.segments if diarization is not None else ())
         lines = build_lines(words, labels)
         marks = build_review(
             words,
-            detector.words,
+            detector_words,
             audio_s,
             min_silence_s=profile.review.min_silence_s,
             min_detector_words=profile.review.min_detector_words,
             pad_s=profile.review.pad_s,
         )
-        samples = audio.read_wav_mono16k(wav)
         overview = overview_peaks(samples)
         del samples
         reporter.report("speakers", 1.0)
 
         reporter.report("outputs", 0.0)
+        non_speech = {
+            "seconds_by_kind": seconds_by_kind(analysis.scenes),
+            "suppressed_publisher_words": sum(len(segment.words) for segment in analysis.suppressed),
+            "suppressed_detector_words": len(detector.words) - len(detector_words),
+            "tagged": analysis.tagged,
+        }
         document = build_document(
             source_name=source.name,
             source_sha256=digest,
@@ -532,11 +563,13 @@ def process_file(
             overview=overview,
             produced_utc=started_utc,
             speaker_failure=speaker_failure,
+            scenes=analysis.scenes,
+            non_speech=non_speech,
         )
         write_document(document, paths.transcript)
         render_all(document, paths.text, paths.docx, paths.subtitles, author=job.author)
         audio_reference = source.name if job.out_dir is None else str(source.resolve())
-        write_review_set(review_set(published, detector, audio_reference, marks), paths.review)
+        write_review_set(review_set(published_kept, detector, audio_reference, marks), paths.review)
         reporter.report("outputs", 0.7)
 
         versions: dict[str, str] = {}
@@ -544,6 +577,8 @@ def process_file(
         versions.update(detector.versions)
         if diarization is not None:
             versions.update(diarization.versions)
+        if tagging_result is not None:
+            versions.update(tagging_result.versions)
         engine_facts = {
             "publisher": {"engine": published.engine, "model": published.model, "preset": published.preset},
             "detector": {"engine": detector.engine, "model": detector.model, "preset": detector.preset},
@@ -553,11 +588,23 @@ def process_file(
                 "preset": f"threshold {profile.diarization_threshold}",
             },
         }
-        load_s = published.load_s + detector.load_s + (diarization.load_s if diarization is not None else 0.0)
+        if tagging_result is not None:
+            engine_facts["tagging"] = {
+                "engine": str(tagging_result.engine),
+                "model": str(tagging_result.model),
+                "preset": str(tagging_result.preset),
+            }
+        load_s = (
+            published.load_s
+            + detector.load_s
+            + (diarization.load_s if diarization is not None else 0.0)
+            + (float(tagging_result.load_s) if tagging_result is not None else 0.0)
+        )
         transcribe_s = (
             published.transcribe_s
             + detector.transcribe_s
             + (diarization.diarize_s if diarization is not None else 0.0)
+            + (float(tagging_result.tag_s) if tagging_result is not None else 0.0)
         )
         run_settings = _preset_settings(profile, backend) | {
             "threads": job.threads,
@@ -568,6 +615,20 @@ def process_file(
             "publisher_engine_settings": dict(published.settings),
             "detector_engine_settings": dict(detector.settings),
             "parallel_engines": parallel,
+            "scenes": dict(analysis.settings)
+            | dict(non_speech)
+            | {
+                "count": len(analysis.scenes),
+                "regions_tagged": analysis.regions_tagged,
+                "tagger_model": KEY_AUDIO_TAGGER if tagging_result is not None else None,
+                "list": [
+                    {"start": s.start, "end": s.end, "kind": s.kind, "label": s.label, "probability": s.probability}
+                    for s in analysis.scenes
+                ],
+                "suppressed_utterances": [
+                    {"start": u.start, "end": u.end, "words": len(u.words), "text": u.text} for u in analysis.suppressed
+                ],
+            },
         }
         record = RunRecord(
             engines=engine_facts,

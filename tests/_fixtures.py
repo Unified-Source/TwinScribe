@@ -3,10 +3,13 @@ known gaps, speaker turns, transcripts built from them, a fake model store and f
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from twinscribe.engines.base import Diarization, Segment, SpeakerTurn, Transcript, Word
+from twinscribe.scenes import Event, Scene, seconds_by_kind, words_outside
 from twinscribe.hardware import ARCH_X86_64, OS_WINDOWS, Gpu, Libraries, Machine, Plan, make_plan
 from twinscribe.labelling import build_lines, label_words
 from twinscribe.models import CATALOGUE, ModelSet, find_models
@@ -40,12 +43,26 @@ def turns(spec: list[tuple[float, float, str]] = TURNS) -> tuple[SpeakerTurn, ..
     return tuple(SpeakerTurn(start=s, end=e, label=label) for s, e, label in spec)
 
 
+SEGMENT_GAP_S = 1.0
+
+
+def segments_from_words(ws: list[Word], gap_s: float = SEGMENT_GAP_S) -> tuple[Segment, ...]:
+    """Consecutive words become one segment; a pause longer than gap_s starts the next, as the
+    voice detector's utterances would."""
+    segments: list[Segment] = []
+    current: list[Word] = []
+    for word in ws:
+        if current and word.start - current[-1].end > gap_s:
+            segments.append(Segment(current[0].start, current[-1].end, " ".join(w.text for w in current), tuple(current), {}))
+            current = []
+        current.append(word)
+    if current:
+        segments.append(Segment(current[0].start, current[-1].end, " ".join(w.text for w in current), tuple(current), {}))
+    return tuple(segments)
+
+
 def transcript(engine: str, model: str, preset: str, ws: list[Word], audio_s: float = AUDIO_S) -> Transcript:
-    if ws:
-        segment = Segment(start=ws[0].start, end=ws[-1].end, text=" ".join(w.text for w in ws), words=tuple(ws), quality={})
-        segments: tuple[Segment, ...] = (segment,)
-    else:
-        segments = ()
+    segments = segments_from_words(ws)
     return Transcript(
         engine=engine,
         model=model,
@@ -123,11 +140,14 @@ def make_engines(
     no_diarizer: bool = False,
     calls: list[str] | None = None,
     kwargs_seen: dict[str, dict] | None = None,
+    tagger_events: Callable[[tuple[float, float]], list[Event]] | None = None,
+    no_tagger: bool = False,
 ) -> Engines:
     """Engines that return the fixtures above, report progress and optionally fail.
 
     calls records the order of engine calls; kwargs_seen records the keyword arguments each
-    engine received, keyed by engine name.
+    engine received, keyed by engine name. The fake tagger hears speech everywhere unless
+    tagger_events maps a region to the events to return for it.
     """
 
     def note(name: str, kwargs: dict) -> None:
@@ -183,23 +203,56 @@ def make_engines(
             raise RuntimeError("embedding model rejected")
         return diarization(threshold=threshold)
 
+    def tagger(path, model_dir, regions, threads=None, provider="cpu", top_k=8, progress=None, **kwargs):
+        note("tagger", kwargs)
+        events = []
+        for region in regions:
+            if tagger_events is not None:
+                events.append(tuple(tagger_events((float(region[0]), float(region[1])))))
+            else:
+                events.append((Event("Speech", 0.9),))
+        if progress is not None:
+            progress(1.0)
+        return SimpleNamespace(
+            engine="fake_tagging", model=Path(model_dir).name, preset=f"top-{top_k}", regions=tuple(regions),
+            events=tuple(events), load_s=0.05, tag_s=0.1, versions={"tagger_lib": "1.0"},
+            settings={"top_k": top_k, "provider": provider},
+        )
+
     return Engines(
         publisher=publisher,
         detector=detector,
         diarizer=None if no_diarizer else diarizer,
         detector_onnx=detector_onnx,
+        tagger=None if no_tagger else tagger,
     )
 
 
-def make_document(source_name: str = "call.wav", with_speakers: bool = True, profile: str = "standard") -> dict[str, Any]:
-    """A transcript document built from the fixtures, as the pipeline would build it."""
+def make_document(
+    source_name: str = "call.wav",
+    with_speakers: bool = True,
+    profile: str = "standard",
+    scenes: tuple[Scene, ...] = (),
+) -> dict[str, Any]:
+    """A transcript document built from the fixtures, as the pipeline would build it; scenes,
+    when given, are written in with their totals and the detector words inside them left out
+    of the review list."""
     published = published_transcript()
     detector = detector_transcript()
     diar = diarization() if with_speakers else None
     labels = label_words(published.words, diar.segments if diar is not None else ())
     lines = build_lines(published.words, labels)
-    marks = build_review(published.words, detector.words, AUDIO_S)
+    detector_words = words_outside(detector.words, scenes)
+    marks = build_review(published.words, detector_words, AUDIO_S)
+    non_speech = {
+        "seconds_by_kind": seconds_by_kind(scenes),
+        "suppressed_publisher_words": 0,
+        "suppressed_detector_words": len(detector.words) - len(detector_words),
+        "tagged": bool(scenes),
+    }
     return build_document(
+        scenes=scenes,
+        non_speech=non_speech,
         source_name=source_name,
         source_sha256="ab" * 32,
         source_bytes=960044,

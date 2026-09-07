@@ -248,6 +248,45 @@ def test_document_xml_without_lines() -> None:
     assert "No words were published" in document_xml(doc)
 
 
+def test_scene_phrases() -> None:
+    from twinscribe.outputs.transcript_doc import format_seconds, non_speech_summary, scene_phrase, scene_tag
+
+    assert format_seconds(6.4) == "6 s" and format_seconds(60.0) == "1 min" and format_seconds(150.0) == "2 min 30 s"
+    assert scene_phrase({"start": 10.0, "end": 16.0, "kind": "silence"}) == "silence, 6 s"
+    assert scene_phrase({"start": 10.0, "end": 22.0, "kind": "music", "label": ""}) == "music, no speech, 12 s"
+    assert scene_phrase({"start": 0.0, "end": 8.0, "kind": "noise", "label": "Waterfall"}) == "background noise, no speech, 8 s"
+    assert scene_phrase({"start": 0.0, "end": 5.0, "kind": "sound", "label": "Siren"}) == "sound (Siren), no speech, 5 s"
+    assert scene_tag({"kind": "music"}) == "[music]" and scene_tag({"kind": "noise"}) == "[background noise]"
+    assert scene_tag({"kind": "sound", "label": "Siren"}) == "[sound: Siren]" and scene_tag({"kind": "sound"}) == "[sound]"
+    assert non_speech_summary({"non_speech": {"seconds_by_kind": {"silence": 14.0, "music": 21.0}}}) == "silence 14 s, music 21 s"
+    assert non_speech_summary({}) == ""
+
+
+def test_scenes_render_in_text_word_and_subtitles(tmp_path: Path) -> None:
+    from twinscribe.scenes import Scene
+
+    doc = make_document(scenes=(Scene(7.6, 12.0, "silence"), Scene(13.9, 24.0, "music", "", 0.8)))
+    assert [s["kind"] for s in doc["scenes"]] == ["silence", "music"]
+    assert doc["non_speech"]["suppressed_detector_words"] == 2 and doc["review"]["marks"] == 1
+    text = render_text(doc)
+    assert "Without speech: silence 4 s, music 10 s; marked in the transcript." in text
+    assert "2 words the second engine placed inside silence, music or noise were left out of the review list" in text
+    lines = transcript_lines(doc)
+    assert "[0:07.6] (silence, 4 s)" in lines and "[0:13.9] (music, no speech, 10 s)" in lines
+    assert lines.index("[0:07.6] (silence, 4 s)") < lines.index("[0:12.0] Speaker 1: thank you for waiting")
+    assert lines[lines.index("[0:07.6] (silence, 4 s)") - 1] == ""                # set off by a blank line
+    cues = build_cues(doc)
+    tags = [c for c in cues if c.text.startswith("[")]
+    assert [(c.start, c.end, c.text) for c in tags] == [(13.9, 24.0, "[music]")]  # silence gets no cue
+    assert [c.start for c in cues] == sorted(c.start for c in cues)
+    body = document_xml(doc)
+    assert "(music, no speech, 10 s)" in body and "<w:i/>" in body and "Without speech: silence 4 s" in body
+    write_docx(doc, tmp_path / "s.docx")
+    with zipfile.ZipFile(tmp_path / "s.docx") as archive:
+        for name in archive.namelist():
+            ET.fromstring(archive.read(name))
+
+
 def test_render_all_writes_three_files(tmp_path: Path) -> None:
     doc = make_document()
     render_all(doc, tmp_path / "c.txt", tmp_path / "c.docx", tmp_path / "c.srt", author="x")

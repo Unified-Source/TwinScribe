@@ -43,6 +43,7 @@ STAGE_LABELS: dict[str, str] = {
     "decode": "Decoding",
     "publisher": "Transcribing",
     "detector": "Checking",
+    "scenes": "Non-speech",
     "speakers": "Speakers",
     "outputs": "Writing",
 }

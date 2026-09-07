@@ -89,6 +89,17 @@ using `sherpa_onnx.OfflineSpeakerDiarization`. Clustering by threshold is the de
 failure. Return segments `(start, end, label)`, seconds per label, load and diarize timings,
 and versions.
 
+## 5a. `twinscribe/engines/tagging.py`
+
+`tag_regions(audio_path, model_dir, regions, threads=None, provider="cpu", top_k=8, progress=None) -> Tagging`
+using `sherpa_onnx.AudioTagging` with a CED model (`model.int8.onnx` and
+`class_labels_indices.csv` in the folder). For each region (start and end in seconds) of one
+16 kHz mono WAV, the top classes by probability in descending order; a region shorter than a
+tenth of a second yields no events. Returns the regions, the events per region, load and
+tagging timings, versions and the settings asked for. The model decides nothing itself; the
+scene pass (`batch_app.md`, section 3a) turns its events into markers and into the decision to
+set aside words the published engine wrote where there was no speech.
+
 ## 6. Tests
 
 `synthetic_wav` for the audio tests; the `ffmpeg` test skips when it is absent. For the

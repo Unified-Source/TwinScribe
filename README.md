@@ -42,9 +42,10 @@ Beside the recording, named by its stem:
 
 - `.docx` and `.txt`: timestamped, speaker-labelled, with a speaker summary at the top giving
   the word count assigned to each speaker, because a participant can vanish from a transcript
-  while the overall accuracy looks normal;
+  while the overall accuracy looks normal; stretches of silence, music and background noise
+  are marked where nothing is said, so a gap in the text is explained rather than filled;
 - `.srt`: a subtitle file, so the transcript plays against the recording line by line in any
-  player;
+  player, with `[music]` and `[background noise]` cues where nothing is said;
 - `.review.json`: the review list, with a screen for working through it with the audio at
   each mark;
 - `.run.json`: the run record: engines and versions, settings, the file's digest, when it ran,
@@ -87,7 +88,8 @@ from them are under `docs/specs/`.
 
 Engines and models are open and run on the processor: faster-whisper and CTranslate2 (MIT),
 Whisper weights (MIT), sherpa-onnx (Apache-2.0), NVIDIA Parakeet TDT 0.6B v2 and TitaNet
-(CC BY 4.0), Silero VAD (MIT), pyannote segmentation-3.0 (MIT). The interface is PySide6
+(CC BY 4.0), Silero VAD (MIT), pyannote segmentation-3.0 (MIT), the CED audio tagger
+(Apache-2.0) with the AudioSet class labels (CC BY 4.0). The interface is PySide6
 (LGPL-3.0). Attributions are in [NOTICE](NOTICE). Test material is public research audio
 under CC BY 4.0; no private recording of any kind is used in development or testing.
 
