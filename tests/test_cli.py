@@ -84,6 +84,42 @@ def test_run_records_engine_failures(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert list((tmp_path / "home" / "runs").glob("batch_*.json"))
 
 
+def test_live_line_prints_on_stage_changes_without_a_terminal() -> None:
+    import io
+
+    from twinscribe.cli import LiveLine
+    from twinscribe.pipeline import Progress
+
+    stream = io.StringIO()
+    line = LiveLine(stream)
+    line.update("[1/1] a.wav", Progress("publisher", 0.10, "Transcribing (published engine)", 3.0, None))
+    line.update("[1/1] a.wav", Progress("publisher", 0.12, "Transcribing (published engine)", 4.0, 30.0))
+    line.update("[1/1] a.wav", Progress("publisher", 0.25, "Transcribing (published engine)", 8.0, 100.0))
+    line.finish()
+    out = stream.getvalue().splitlines()
+    assert len(out) == 2
+    assert out[0].endswith("0:03 elapsed") and "roughly 2 min left" in out[1]
+
+
+def test_live_line_updates_in_place_on_a_terminal() -> None:
+    import io
+
+    from twinscribe.cli import LiveLine
+    from twinscribe.pipeline import Progress
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    stream = Terminal()
+    line = LiveLine(stream)
+    line.update("[1/2] a.wav", Progress("digest", 0.0, "Reading the file", 0.0, None))
+    line.update("[1/2] a.wav", Progress("detector", 0.5, "Checking (second engine)", 30.0, 30.0))
+    line.finish()
+    text = stream.getvalue()
+    assert text.count("\r") == 2 and text.endswith("\n") and "about 30 s left" in text
+
+
 def test_export_renders_beside_the_document(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     doc = make_document(source_name="meeting.mp3")
     path = tmp_path / "meeting.transcript.json"

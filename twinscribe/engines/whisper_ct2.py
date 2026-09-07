@@ -188,6 +188,7 @@ def transcribe(
     device: str = DEVICE,
     compute_type: str = COMPUTE_TYPE,
     device_index: int = 0,
+    on_segment: Callable[[Segment], None] | None = None,
 ) -> Transcript:
     """Transcribe one file with a local CTranslate2 Whisper conversion.
 
@@ -197,9 +198,11 @@ def transcribe(
     filtering is recorded in extras so that a benchmark run states how much audio it decoded.
     progress, when given, is called after every decoded segment with the fraction of the
     audio reached so far; an exception raised inside it propagates and abandons the run,
-    which is how a caller cancels. device is "cpu" (the measured configuration, int8) or
-    "cuda" with a compute type the device supports; the acceleration plan chooses them and
-    they are recorded in the transcript's settings.
+    which is how a caller cancels; it is also called with 0.0 once the model has loaded, so a
+    caller can tell loading from decoding. on_segment, when given, receives each segment as it
+    is decoded. device is "cpu" (the measured configuration, int8) or "cuda" with a compute
+    type the device supports; the acceleration plan chooses them and they are recorded in the
+    transcript's settings.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -228,13 +231,18 @@ def transcribe(
         local_files_only=True,
     )
     load_s = time.perf_counter() - load_start
+    if progress is not None:
+        progress(0.0)
 
     transcribe_start = time.perf_counter()
     generator, info = model.transcribe(str(audio), **kwargs)
     audio_s = float(getattr(info, "duration", 0.0) or 0.0)
     collected: list[Segment] = []
     for seg in generator:
-        collected.append(segment_from_library(seg, want_words))
+        segment = segment_from_library(seg, want_words)
+        collected.append(segment)
+        if on_segment is not None:
+            on_segment(segment)
         if progress is not None and audio_s > 0.0:
             progress(min(1.0, float(seg.end) / audio_s))
     segments = tuple(collected)

@@ -162,6 +162,26 @@ def test_process_file_writes_six_outputs(recording: Path, models, tmp_path: Path
     assert "decode" not in seen                       # a compliant WAV is fed as it is
 
 
+def test_progress_carries_time_and_loading_messages_and_partials(recording: Path, models, tmp_path: Path) -> None:
+    reports: list[Progress] = []
+    partials: list[tuple[str, str]] = []
+    process_file(
+        job_for(recording, models, tmp_path),
+        progress=reports.append,
+        engines=make_engines(),
+        on_partial=lambda role, segment: partials.append((role, segment.text)),
+    )
+    messages = [r.message for r in reports]
+    assert "Loading the published engine" in messages and "Transcribing (published engine)" in messages
+    assert messages.index("Loading the published engine") < messages.index("Transcribing (published engine)")
+    assert "Loading the second engine" in messages and "Loading the speaker models and labelling speakers" in messages
+    assert all(r.elapsed_s >= 0.0 for r in reports) and reports[-1].elapsed_s >= reports[0].elapsed_s
+    assert reports[0].eta_s is None
+    assert any(r.eta_s is not None and r.eta_s >= 0.0 for r in reports)
+    assert partials and all(role == "publisher" for role, _ in partials)
+    assert partials[0][1].startswith("good morning")
+
+
 def test_detector_placement_follows_the_plan(recording: Path, models, tmp_path: Path) -> None:
     seen: dict[str, dict] = {}
     process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
@@ -311,6 +331,7 @@ def test_batch_records_every_outcome(recording: Path, models, tmp_path: Path) ->
     broken = recording.parent / "broken.mp3"
     broken.write_bytes(b"not audio at all")
     seen: list[tuple[int, bool]] = []
+    partials: list[tuple[int, str]] = []
     result = run_batch(
         [recording, broken],
         profile_for("standard"),
@@ -319,8 +340,10 @@ def test_batch_records_every_outcome(recording: Path, models, tmp_path: Path) ->
         record_dir=tmp_path / "runs",
         on_outcome=lambda index, outcome: seen.append((index, outcome.ok)),
         plan=make_plan_for(),
+        on_partial=lambda index, role, segment: partials.append((index, role)),
     )
     assert seen == [(0, True), (1, False)]
+    assert partials and all(entry == (0, "publisher") for entry in partials)
     assert len(result.completed) == 1 and len(result.failures) == 1
     assert result.failures[0].source == broken and result.failures[0].error_class
     assert result.record_path is not None and result.record_path.parent == tmp_path / "runs"

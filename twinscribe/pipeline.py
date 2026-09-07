@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from twinscribe import __version__, audio, load
-from twinscribe.engines.base import Diarization, Transcript
+from twinscribe.engines.base import Diarization, Segment, Transcript
 from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
 from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRESET
 from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
@@ -65,6 +65,14 @@ STAGE_TITLES: dict[str, str] = {
     "speakers": "Labelling speakers",
     "outputs": "Writing the outputs",
 }
+# What a stage says before its engine has reported once: the model is being loaded.
+LOADING_TITLES: dict[str, str] = {
+    "publisher": "Loading the published engine",
+    "detector": "Loading the second engine",
+    "speakers": "Loading the speaker models and labelling speakers",
+}
+PARALLEL_TITLE = "Transcribing and checking at the same time"
+ETA_MIN_FRACTION = 0.05
 
 
 class Cancelled(RuntimeError):
@@ -73,15 +81,23 @@ class Cancelled(RuntimeError):
 
 @dataclass(frozen=True)
 class Progress:
-    """One progress report: the stage, the overall fraction for the file and a message."""
+    """One progress report for a file.
+
+    stage names the stage, fraction is the overall fraction of the file done, message is what
+    is happening now, elapsed_s the seconds since the file started, and eta_s a smoothed
+    estimate of the seconds left (None until enough has been done to estimate).
+    """
 
     stage: str
     fraction: float
     message: str
+    elapsed_s: float = 0.0
+    eta_s: float | None = None
 
 
 ProgressFn = Callable[[Progress], None]
 CancelFn = Callable[[], bool]
+PartialFn = Callable[[str, Segment], None]
 
 
 @dataclass(frozen=True)
@@ -255,6 +271,8 @@ class _Reporter:
         self._offsets: dict[str, tuple[float, float]] = {}
         self._parallel = False
         self._fractions: dict[str, float] = {"publisher": 0.0, "detector": 0.0}
+        self._started = time.perf_counter()
+        self._eta: float | None = None
         start = 0.0
         for name, weight in STAGES:
             self._offsets[name] = (start, weight)
@@ -267,6 +285,14 @@ class _Reporter:
         if self._cancel is not None and self._cancel():
             raise Cancelled("cancelled")
 
+    def _estimate(self, overall: float, elapsed: float) -> float | None:
+        """Seconds left, from the pace so far, smoothed; None until enough is done to say."""
+        if overall < ETA_MIN_FRACTION or elapsed <= 0.0:
+            return None
+        raw = elapsed * (1.0 - overall) / overall
+        self._eta = raw if self._eta is None else 0.7 * self._eta + 0.3 * raw
+        return max(0.0, self._eta)
+
     def report(self, stage: str, fraction: float, message: str | None = None) -> None:
         self.check()
         clamped = min(1.0, max(0.0, fraction))
@@ -276,13 +302,16 @@ class _Reporter:
             _, detector_weight = self._offsets["detector"]
             combined = publisher_weight * self._fractions["publisher"] + detector_weight * self._fractions["detector"]
             overall = min(1.0, max(0.0, publisher_offset + combined))
-            text = message or "Transcribing and checking at the same time"
+            text = message or PARALLEL_TITLE
         else:
             offset, weight = self._offsets[stage]
             overall = min(1.0, max(0.0, offset + weight * clamped))
             text = message or STAGE_TITLES[stage]
+        elapsed = time.perf_counter() - self._started
         if self._progress is not None:
-            self._progress(Progress(stage=stage, fraction=overall, message=text))
+            self._progress(
+                Progress(stage=stage, fraction=overall, message=text, elapsed_s=elapsed, eta_s=self._estimate(overall, elapsed))
+            )
 
     def stage_fn(self, stage: str) -> Callable[[float], None]:
         def inner(fraction: float) -> None:
@@ -333,12 +362,16 @@ def process_file(
     progress: ProgressFn | None = None,
     cancel: CancelFn | None = None,
     engines: Engines | None = None,
+    on_partial: PartialFn | None = None,
 ) -> FileResult:
     """Run the whole pipeline over one recording and write its outputs.
 
     Speaker labelling that fails does not lose the transcript: the failure is recorded in the
     run record and the document, and every word is left unlabelled. Any other failure
-    propagates after a run record naming it has been written beside the recording.
+    propagates after a run record naming it has been written beside the recording. on_partial,
+    when given, receives every segment the published engine produces as it produces it, with
+    the role "publisher"; the detector's segments are never passed on, because its text is
+    never shown.
     """
     started_utc = utc_now()
     started = time.perf_counter()
@@ -374,6 +407,10 @@ def process_file(
         parallel = plan.parallel_for(backend)
         vad_model = models.file(KEY_SILERO_VAD, "silero_vad.onnx")
 
+        def publisher_segment(segment: Segment) -> None:
+            if on_partial is not None:
+                on_partial("publisher", segment)
+
         def run_publisher() -> Transcript:
             return engine_set.publisher(
                 wav,
@@ -383,6 +420,7 @@ def process_file(
                 threads=job.threads,
                 progress=reporter.stage_fn("publisher"),
                 provider=plan.publisher.provider,
+                on_segment=publisher_segment if on_partial is not None else None,
             )
 
         def run_detector() -> Transcript:
@@ -412,7 +450,7 @@ def process_file(
         before = load.snapshot()
         if parallel:
             reporter.set_parallel(True)
-            reporter.report("publisher", 0.0)
+            reporter.report("publisher", 0.0, "Loading both engines")
             with ThreadPoolExecutor(max_workers=2) as pool:
                 publisher_future = pool.submit(run_publisher)
                 detector_future = pool.submit(run_detector)
@@ -421,14 +459,14 @@ def process_file(
             reporter.set_parallel(False)
             reporter.report("detector", 1.0)
         else:
-            reporter.report("publisher", 0.0)
+            reporter.report("publisher", 0.0, LOADING_TITLES["publisher"])
             published = run_publisher()
             reporter.report("publisher", 1.0)
-            reporter.report("detector", 0.0)
+            reporter.report("detector", 0.0, LOADING_TITLES["detector"])
             detector = run_detector()
             reporter.report("detector", 1.0)
 
-        reporter.report("speakers", 0.0)
+        reporter.report("speakers", 0.0, LOADING_TITLES["speakers"])
         diarization: Diarization | None = None
         speaker_failure: str | None = None
         failures: list[Failure] = []
@@ -610,6 +648,7 @@ class Outcome:
 
 
 BatchProgressFn = Callable[[int, int, Progress], None]
+BatchPartialFn = Callable[[int, str, Segment], None]
 OutcomeFn = Callable[[int, "Outcome"], None]
 
 
@@ -644,13 +683,15 @@ def run_batch(
     on_outcome: OutcomeFn | None = None,
     plan: Plan | None = None,
     preference: str = DEVICE_AUTO,
+    on_partial: BatchPartialFn | None = None,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
 
     A cancellation stops the batch; the recordings not reached are recorded as cancelled. The
     batch record lists every recording with its outputs or its error. on_outcome, when given,
-    is called with the index and the outcome as soon as each recording finishes. The
-    acceleration plan is probed once for the batch when not given.
+    is called with the index and the outcome as soon as each recording finishes; on_partial
+    with the index, the role and each segment the published engine produces. The acceleration
+    plan is probed once for the batch when not given.
     """
     started_utc = utc_now()
     result = BatchResult()
@@ -685,8 +726,15 @@ def run_batch(
             if progress is not None:
                 progress(_index, total, p)
 
+        def file_partial(role: str, segment: Segment, _index: int = index) -> None:
+            if on_partial is not None:
+                on_partial(_index, role, segment)
+
         try:
-            file_result = process_file(job, progress=file_progress, cancel=cancel, engines=engines)
+            file_result = process_file(
+                job, progress=file_progress, cancel=cancel, engines=engines,
+                on_partial=file_partial if on_partial is not None else None,
+            )
             record(Outcome(source=source, ok=True, result=file_result, elapsed_s=time.perf_counter() - started), index)
         except Cancelled:
             record(Outcome(source=source, ok=False, cancelled=True, elapsed_s=time.perf_counter() - started), index)

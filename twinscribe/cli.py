@@ -76,6 +76,61 @@ def _module_present(name: str) -> bool:
         return False
 
 
+def _span(seconds: float) -> str:
+    whole = max(0, int(seconds))
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+def _remaining(eta_s: float | None) -> str:
+    if eta_s is None:
+        return ""
+    if eta_s < 10.0:
+        return ", almost done"
+    if eta_s < 90.0:
+        return f", about {int(round(eta_s / 10.0)) * 10} s left"
+    return f", roughly {int(round(eta_s / 60.0))} min left"
+
+
+class LiveLine:
+    """One status line that updates in place on a terminal, or prints on stage changes and
+    every ten per cent elsewhere, so a run always shows movement."""
+
+    SPINNER = "|/-\\"
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._tty = bool(getattr(stream, "isatty", lambda: False)())
+        self._spin = 0
+        self._last_key: tuple[str, str, int] | None = None
+        self._open = False
+        self._width = 0
+
+    def update(self, prefix: str, report: Progress) -> None:
+        percent = int(round(100 * report.fraction))
+        text = f"{prefix}: {report.message} {percent:3d}%  {_span(report.elapsed_s)} elapsed{_remaining(report.eta_s)}"
+        if self._tty:
+            self._spin = (self._spin + 1) % len(self.SPINNER)
+            line = f"{self.SPINNER[self._spin]} {text}"
+            padding = " " * max(0, self._width - len(line))
+            self._stream.write("\r" + line + padding)
+            self._stream.flush()
+            self._width = len(line)
+            self._open = True
+            return
+        key = (prefix, report.message, percent // 10)
+        if key != self._last_key:
+            self._stream.write(text + "\n")
+            self._stream.flush()
+            self._last_key = key
+
+    def finish(self) -> None:
+        if self._open:
+            self._stream.write("\n")
+            self._stream.flush()
+            self._open = False
+            self._width = 0
+
+
 def command_check(args: argparse.Namespace) -> int:
     """Print what the machine offers and what the store holds."""
     ffmpeg = shutil.which("ffmpeg")
@@ -127,13 +182,13 @@ def command_run(args: argparse.Namespace) -> int:
     for line in plan.describe():
         print(line)
     print(f"detector model: {selection.detector} ({selection.backend})")
-    last_line = {"text": ""}
+    live = LiveLine(sys.stdout)
 
     def report(index: int, total: int, p: Progress) -> None:
-        text = f"[{index + 1}/{total}] {sources[index].name}: {p.message} {100.0 * p.fraction:5.1f}%"
-        if text != last_line["text"]:
-            print(text, flush=True)
-            last_line["text"] = text
+        live.update(f"[{index + 1}/{total}] {sources[index].name}", p)
+
+    def outcome(index: int, _outcome) -> None:
+        live.finish()
 
     result = run_batch(
         sources,
@@ -146,7 +201,9 @@ def command_run(args: argparse.Namespace) -> int:
         progress=report,
         plan=plan,
         preference=args.device,
+        on_outcome=outcome,
     )
+    live.finish()
     for outcome in result.outcomes:
         if outcome.ok and outcome.result is not None:
             print(
