@@ -175,7 +175,8 @@ def stylesheet(dark: bool = False) -> str:
     """One stylesheet for every control, built from the palette table."""
     t = _table(dark)
     return f"""
-QWidget {{ font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 10pt; }}
+QWidget {{ font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", "Noto Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 10pt; }}
 QMainWindow, QDialog {{ background: {t['window']}; }}
 QToolTip {{ background: {t['tooltip_base']}; color: {t['tooltip_text']}; border: none; padding: 5px 8px; }}
 QPushButton {{ background: {t['button']}; color: {t['button_text']}; border: 1px solid {t['mid']};
@@ -260,7 +261,7 @@ def apply_styles(app: QApplication, dark: bool = False) -> None:
     only need the palette (and tests that check the style by name) call apply_theme alone.
     """
     font = QFont(app.font())
-    font.setFamilies(["Segoe UI", "Helvetica Neue", "Arial"])
+    font.setFamilies(["Segoe UI", "SF Pro Text", "Helvetica Neue", "Noto Sans", "DejaVu Sans", "Arial"])
     font.setPointSize(10)
     app.setFont(font)
     app.setStyleSheet(stylesheet(dark))

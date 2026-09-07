@@ -76,10 +76,49 @@ def duration_s(path: PathLike) -> float:
     return _wav_duration(path)
 
 
-def find_ffmpeg(ffmpeg: PathLike | None = None) -> str:
-    """Resolve the ffmpeg executable: the argument first, then the search path.
+# Child processes started from a windowed application must not open a console window.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+FFMPEG_ENV = "TWINSCRIBE_FFMPEG"
 
-    Raises FileNotFoundError with a clear message when neither yields an executable.
+
+def _executable_name() -> str:
+    return "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+
+
+def candidate_ffmpeg_paths() -> list[str]:
+    """Where ffmpeg is looked for, in order, after an explicit argument.
+
+    The environment variable named by FFMPEG_ENV; the search path; a bin folder beside the
+    package (a portable copy); the executable an imageio-ffmpeg package carries when one is
+    installed; then the usual places on each platform.
+    """
+    candidates: list[str] = []
+    override = os.environ.get(FFMPEG_ENV)
+    if override:
+        candidates.append(override)
+    on_path = shutil.which("ffmpeg")
+    if on_path is not None:
+        candidates.append(on_path)
+    candidates.append(str(Path(__file__).resolve().parent.parent / "bin" / _executable_name()))
+    try:
+        import imageio_ffmpeg  # type: ignore[import-not-found]
+
+        candidates.append(str(imageio_ffmpeg.get_ffmpeg_exe()))
+    except Exception:  # noqa: BLE001 - an optional package that may be absent or broken
+        pass
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            candidates.append(str(Path(local) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe"))
+    else:
+        candidates.extend(["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"])
+    return candidates
+
+
+def find_ffmpeg(ffmpeg: PathLike | None = None) -> str:
+    """Resolve the ffmpeg executable: the argument first, then the candidate places in order.
+
+    Raises FileNotFoundError with a clear message when nothing yields an executable.
     """
     if ffmpeg is not None:
         candidate = str(ffmpeg)
@@ -89,10 +128,13 @@ def find_ffmpeg(ffmpeg: PathLike | None = None) -> str:
         if resolved is not None:
             return resolved
         raise FileNotFoundError(f"ffmpeg not found at {candidate!r}")
-    resolved = shutil.which("ffmpeg")
-    if resolved is None:
-        raise FileNotFoundError("ffmpeg not found on the search path; pass its location explicitly")
-    return resolved
+    for candidate in candidate_ffmpeg_paths():
+        if Path(candidate).is_file():
+            return candidate
+    raise FileNotFoundError(
+        "ffmpeg not found: not on the search path, not in a bin folder beside the package, and "
+        f"{FFMPEG_ENV} is not set; pass its location explicitly"
+    )
 
 
 def decode_to_wav(
@@ -139,6 +181,7 @@ def decode_to_wav(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        creationflags=NO_WINDOW,
     )
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()

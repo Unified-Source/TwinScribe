@@ -50,8 +50,26 @@ def input_digest(path: str | os.PathLike[str]) -> str:
     return digest.hexdigest()
 
 
+def _sysctl(key: str) -> str | None:
+    """One value from the BSD sysctl tool (macOS); None when unavailable."""
+    import subprocess
+
+    try:
+        completed = subprocess.run(
+            ["sysctl", "-n", key], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.decode("utf-8", errors="replace").strip() or None
+
+
 def _processor_name() -> str | None:
     name = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER") or ""
+    if sys.platform == "darwin":
+        name = _sysctl("machdep.cpu.brand_string") or name
     if not name and sys.platform.startswith("linux"):
         try:
             with open("/proc/cpuinfo", encoding="ascii", errors="replace") as handle:
@@ -88,6 +106,9 @@ def _memory_gb() -> float | None:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         if kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             total = int(status.ullTotalPhys)
+    elif sys.platform == "darwin":
+        value = _sysctl("hw.memsize")
+        total = int(value) if value and value.isdigit() else None
     elif hasattr(os, "sysconf"):
         try:
             total = int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))

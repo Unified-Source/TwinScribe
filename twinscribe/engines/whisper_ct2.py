@@ -185,8 +185,11 @@ def transcribe(
     preset: str | Mapping[str, Any],
     threads: int | None = None,
     progress: Callable[[float], None] | None = None,
+    device: str = DEVICE,
+    compute_type: str = COMPUTE_TYPE,
+    device_index: int = 0,
 ) -> Transcript:
-    """Transcribe one file with a local CTranslate2 Whisper conversion on the processor.
+    """Transcribe one file with a local CTranslate2 Whisper conversion.
 
     The load timer covers model construction. The transcription timer encloses full
     consumption of the segment generator, because the library decodes lazily and the
@@ -194,7 +197,9 @@ def transcribe(
     filtering is recorded in extras so that a benchmark run states how much audio it decoded.
     progress, when given, is called after every decoded segment with the fraction of the
     audio reached so far; an exception raised inside it propagates and abandons the run,
-    which is how a caller cancels.
+    which is how a caller cancels. device is "cpu" (the measured configuration, int8) or
+    "cuda" with a compute type the device supports; the acceleration plan chooses them and
+    they are recorded in the transcript's settings.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -204,14 +209,21 @@ def transcribe(
     kwargs = transcribe_kwargs(settings)
     want_words = bool(kwargs.get("word_timestamps", False))
     thread_count = default_threads(threads)
+    if device not in ("cpu", "cuda"):
+        raise ValueError(f"device must be cpu or cuda, got {device!r}")
 
+    if device == "cuda":
+        from twinscribe.hardware import register_cuda_libraries
+
+        register_cuda_libraries()
     faster_whisper = _import_faster_whisper()
 
     load_start = time.perf_counter()
     model = faster_whisper.WhisperModel(
         str(directory),
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
+        device=device,
+        device_index=int(device_index),
+        compute_type=compute_type,
         cpu_threads=thread_count,
         local_files_only=True,
     )
@@ -244,4 +256,5 @@ def transcribe(
         transcribe_s=transcribe_s,
         versions=library_versions(),
         extras=extras,
+        settings={"device": device, "device_index": int(device_index), "compute_type": compute_type},
     )
