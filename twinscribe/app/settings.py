@@ -18,6 +18,8 @@ SETTINGS_FILE = "settings.json"
 OUTPUT_BESIDE = "beside"
 OUTPUT_FOLDER = "folder"
 ACCELERATIONS: tuple[str, ...] = ("auto", "cpu", "cuda")
+# The largest speaker count the window offers; zero means the count comes from clustering.
+MAX_SPEAKERS = 8
 
 
 @dataclass
@@ -32,6 +34,7 @@ class AppSettings:
     dark: bool = False
     threads: int = 0
     acceleration: str = "auto"
+    speakers: int = 0
     follow: bool = True
     volume: float = 0.8
     rate: float = 1.0
@@ -49,6 +52,11 @@ class AppSettings:
     @property
     def threads_or_none(self) -> int | None:
         return self.threads if self.threads > 0 else None
+
+    @property
+    def speakers_or_none(self) -> int | None:
+        """The speaker count when one is set; None (the default) clusters by threshold."""
+        return self.speakers if self.speakers > 0 else None
 
 
 def settings_path() -> Path:
@@ -93,6 +101,7 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> AppSettings:
         settings.output_mode = OUTPUT_BESIDE
     if settings.acceleration not in ACCELERATIONS:
         settings.acceleration = "auto"
+    settings.speakers = min(MAX_SPEAKERS, max(0, settings.speakers))
     settings.volume = min(1.0, max(0.0, settings.volume))
     settings.rate = min(2.0, max(0.5, settings.rate))
     return settings

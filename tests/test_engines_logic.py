@@ -390,6 +390,19 @@ def test_turns_from_result_orders_and_labels():
     assert diarize.seconds_per_label([]) == {}
 
 
+def test_turns_from_result_renumbers_clusters_by_first_appearance():
+    # The library can skip cluster numbers; labels are contiguous in order of first appearance.
+    records = [
+        SimpleNamespace(start=10.0, end=12.0, speaker=0),
+        SimpleNamespace(start=0.0, end=4.0, speaker=3),
+        SimpleNamespace(start=4.0, end=10.0, speaker=0),
+        SimpleNamespace(start=12.0, end=13.0, speaker=7),
+    ]
+    turns = diarize.turns_from_result(records)
+    assert [t.label for t in turns] == ["speaker_00", "speaker_01", "speaker_01", "speaker_02"]
+    assert turns[0].start == 0.0 and turns[-1].end == 13.0
+
+
 # ---------------------------------------------------------------------------------------
 # Model-directory validation (no library needed)
 # ---------------------------------------------------------------------------------------

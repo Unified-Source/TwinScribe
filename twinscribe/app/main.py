@@ -61,6 +61,7 @@ from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, 
 from twinscribe.app.player import PlayerBar
 from twinscribe.app.settings import (
     ACCELERATIONS,
+    MAX_SPEAKERS,
     OUTPUT_BESIDE,
     OUTPUT_FOLDER,
     AppSettings,
@@ -96,6 +97,10 @@ from twinscribe.profiles import ModelsMissing, Profile, available_profiles, prof
 from twinscribe.runrecord import write_json_atomic
 
 ACCELERATION_TITLES: dict[str, str] = {"auto": "Automatic", "cpu": "Processor only", "cuda": "CUDA device"}
+SPEAKERS_TIP = (
+    "How many speakers to label. Auto lets the clustering decide, so a speaker the models cannot "
+    "separate is missing rather than hidden inside another label; set a number only when it is known."
+)
 
 APP_TITLE = "twinscribe"
 SHOT_DELAY_MS = 1200
@@ -369,6 +374,19 @@ class MainWindow(QMainWindow):
         self.quality_box.currentIndexChanged.connect(self._on_quality_changed)
         top_layout.addWidget(quality_label)
         top_layout.addWidget(self.quality_box)
+
+        speakers_label = QLabel("Speakers", top)
+        speakers_label.setObjectName("muted")
+        self.speakers_box = QComboBox(top)
+        self.speakers_box.addItem("Auto", 0)
+        for count in range(1, MAX_SPEAKERS + 1):
+            self.speakers_box.addItem(str(count), count)
+        self.speakers_box.setCurrentIndex(max(0, self.speakers_box.findData(int(self.settings.speakers))))
+        self.speakers_box.setToolTip(SPEAKERS_TIP)
+        self.speakers_box.currentIndexChanged.connect(self._on_speakers_changed)
+        top_layout.addSpacing(6)
+        top_layout.addWidget(speakers_label)
+        top_layout.addWidget(self.speakers_box)
 
         self.transcribe_button = QPushButton("Transcribe", top)
         self.transcribe_button.setObjectName("primary")
@@ -735,6 +753,9 @@ class MainWindow(QMainWindow):
         if doc is not None:
             labelled = [s for s in doc.get("speakers", []) if s.get("label") is not None]
             parts.append(f"{len(labelled)} speaker" + ("" if len(labelled) == 1 else "s"))
+            diarization_settings = ((doc.get("engines") or {}).get("diarization") or {}).get("settings") or {}
+            if diarization_settings.get("num_speakers"):
+                parts.append(f"speaker count fixed at {int(diarization_settings['num_speakers'])}")
             try:
                 parts.append(profile_for(str(doc.get("profile", ""))).title)
             except KeyError:
@@ -897,6 +918,10 @@ class MainWindow(QMainWindow):
         if name:
             self.settings.quality = str(name)
 
+    def _on_speakers_changed(self, index: int) -> None:
+        value = self.speakers_box.itemData(index)
+        self.settings.speakers = int(value) if value is not None else 0
+
     def selected_profile(self) -> Profile | None:
         name = self.quality_box.currentData()
         if not name:
@@ -969,6 +994,7 @@ class MainWindow(QMainWindow):
             record_dir=self._record_dir,
             parent=self,
             plan=plan,
+            speakers=self.settings.speakers_or_none,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.partial.connect(self._on_partial)
@@ -985,13 +1011,16 @@ class MainWindow(QMainWindow):
         self.stop_button.show()
         self.transcribe_button.setEnabled(False)
         self.quality_box.setEnabled(False)
+        self.speakers_box.setEnabled(False)
         self.batch_label.setText(f"0 of {self._batch_total}")
         where = placement.describe() if placement is not None else "processor"
         backend = "CTranslate2" if selection.backend == BACKEND_CT2 else "ONNX"
+        count = self.settings.speakers_or_none
+        speakers_note = f"; speaker count fixed at {count}" if count is not None else ""
         self.set_status(
             f"Transcribing {self._batch_total} recording" + ("" if self._batch_total == 1 else "s")
             + f" at the {profile.title} level; detector {backend} on {where}; publisher on "
-            f"{plan.publisher.describe()}."
+            f"{plan.publisher.describe()}{speakers_note}."
         )
         self.worker.start()
         return True
@@ -1064,6 +1093,7 @@ class MainWindow(QMainWindow):
         self.stop_button.hide()
         self.stop_button.setEnabled(True)
         self.quality_box.setEnabled(True)
+        self.speakers_box.setEnabled(True)
         self.batch_label.setText("")
         text = f"Batch finished: {completed} done"
         if failures:

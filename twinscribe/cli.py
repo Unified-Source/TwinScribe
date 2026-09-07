@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--device", default="auto", choices=list(PREFERENCES),
                      help="auto uses a CUDA device when one is usable; cpu keeps every engine on the processor")
     run.add_argument("--author", default="", help="author written into the Word document properties")
+    run.add_argument(
+        "--speakers", type=int, default=None, metavar="N",
+        help="the number of speakers, when it is known; by default the count comes from clustering by "
+             "threshold, so a speaker the models cannot separate is missing from the labels rather than "
+             "hidden inside another",
+    )
     run.add_argument("--keep-audio", action="store_true", help="keep the decoded 16 kHz work file")
     run.add_argument("--no-recurse", action="store_true", help="do not descend into sub-folders")
 
@@ -171,6 +177,9 @@ def command_run(args: argparse.Namespace) -> int:
     if not sources:
         print("no recordings found under the given paths", file=sys.stderr)
         return 2
+    if args.speakers is not None and args.speakers < 1:
+        print("--speakers must be at least 1 when given", file=sys.stderr)
+        return 2
     models = find_models(args.models)
     plan = current_plan(args.device, args.threads)
     try:
@@ -182,6 +191,7 @@ def command_run(args: argparse.Namespace) -> int:
     for line in plan.describe():
         print(line)
     print(f"detector model: {selection.detector} ({selection.backend})")
+    print(f"speakers: {'fixed at ' + str(args.speakers) if args.speakers else 'by clustering threshold'}")
     live = LiveLine(sys.stdout)
 
     def report(index: int, total: int, p: Progress) -> None:
@@ -202,6 +212,7 @@ def command_run(args: argparse.Namespace) -> int:
         plan=plan,
         preference=args.device,
         on_outcome=outcome,
+        speakers=args.speakers,
     )
     live.finish()
     for outcome in result.outcomes:

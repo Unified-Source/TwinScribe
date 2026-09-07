@@ -2,9 +2,10 @@
 
 The published engine yields words with times and the diarizer yields labelled turns; neither
 knows about the other. This module gives every word the label of the turn it overlaps most,
-fills the words no turn covers from their neighbours, groups consecutive words of one speaker
-into lines for reading, and counts words per speaker, which is the cheapest way to notice a
-participant the labelling lost.
+fills the words no turn covers from their neighbours, absorbs a one-word flicker inside an
+utterance where a turn boundary jittered against a word boundary, groups consecutive words of
+one speaker into lines for reading, and counts words per speaker, which is the cheapest way to
+notice a participant the labelling lost.
 """
 
 from __future__ import annotations
@@ -13,12 +14,16 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from twinscribe.engines.base import SpeakerTurn, Word
+from twinscribe.engines.base import Segment, SpeakerTurn, Word
 
 UNLABELLED_NAME = "Unknown speaker"
 DEFAULT_MAX_ATTACH_S = 1.0
 DEFAULT_LINE_GAP_S = 1.5
 DEFAULT_LINE_WORDS = 60
+# A run of words with a label of its own inside an utterance is a flicker, not a speaker,
+# when it is shorter than both of these.
+DEFAULT_MIN_RUN_WORDS = 2
+DEFAULT_MIN_RUN_S = 0.6
 
 
 @dataclass(frozen=True)
@@ -127,6 +132,66 @@ def label_words(
         else:
             following = labels[position]
     return labels
+
+
+def _utterance_groups(words: Sequence[Word], segments: Iterable[Segment]) -> list[list[int]]:
+    """Word indices per utterance, by the utterance whose span holds the word's middle."""
+    spans = sorted((float(s.start), float(s.end)) for s in segments)
+    groups: list[list[int]] = [[] for _ in spans]
+    for index, word in enumerate(words):
+        middle = 0.5 * (word.start + word.end)
+        position = bisect_right([s for s, _ in spans], middle) - 1
+        if position >= 0 and middle <= spans[position][1]:
+            groups[position].append(index)
+    return [group for group in groups if group]
+
+
+def smooth_labels(
+    words: Sequence[Word],
+    labels: Sequence[str | None],
+    segments: Iterable[Segment],
+    min_run_words: int = DEFAULT_MIN_RUN_WORDS,
+    min_run_s: float = DEFAULT_MIN_RUN_S,
+) -> tuple[list[str | None], int]:
+    """Absorb label flicker inside the utterances of the published engine.
+
+    Within one utterance, a run of words carrying one label that is shorter than min_run_words
+    and than min_run_s, with the same other label on both sides of it, takes that other label:
+    a turn boundary jittering against a word boundary is not a change of speaker. Runs at
+    either edge of an utterance are left alone, so a short interjection at the start or the end
+    of a sentence keeps its label; so are runs that cross utterances. Returns the labels and
+    the count of words relabelled.
+    """
+    if len(words) != len(labels):
+        raise ValueError(f"{len(words)} words but {len(labels)} labels")
+    if min_run_words < 1 or min_run_s < 0.0:
+        raise ValueError("min_run_words must be at least 1 and min_run_s not negative")
+    result = list(labels)
+    changed = 0
+    for group in _utterance_groups(words, segments):
+        while True:
+            runs: list[tuple[int, int]] = []                 # (first, last) positions within the group
+            for position, index in enumerate(group):
+                if runs and result[group[runs[-1][0]]] == result[index]:
+                    runs[-1] = (runs[-1][0], position)
+                else:
+                    runs.append((position, position))
+            relabelled = False
+            for run_index in range(1, len(runs) - 1):
+                first, last = runs[run_index]
+                before = result[group[runs[run_index - 1][1]]]
+                after = result[group[runs[run_index + 1][0]]]
+                count = last - first + 1
+                span = words[group[last]].end - words[group[first]].start
+                if before == after and count < min_run_words and span < min_run_s:
+                    for position in range(first, last + 1):
+                        result[group[position]] = before
+                    changed += count
+                    relabelled = True
+                    break
+            if not relabelled:
+                break
+    return result, changed
 
 
 def build_lines(

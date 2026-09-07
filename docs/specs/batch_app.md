@@ -46,10 +46,22 @@ package reaches the network; models load from a local folder.
 
 Every published word takes the label of the diarization turn it overlaps most; a word no turn
 overlaps takes the nearest turn within one second; anything still unlabelled inherits the
-previous label, or the next at the start. Consecutive words of one speaker form a line; a line
-breaks at a pause over 1.5 s or at sixty words. The speaker summary counts words and seconds per
-label in order of first appearance, with unlabelled words last. Display names default to
-Speaker 1, Speaker 2, ... and can be changed.
+previous label, or the next at the start. Inside one utterance of the published engine, a
+single word shorter than 0.6 s carrying a label of its own with the same other label on both
+sides takes that label: a turn boundary jittering against a word boundary, not a change of
+speaker; runs at an utterance's edges, and runs that cross utterances, are left as the
+diarizer gave them, so a short interjection keeps its label. The count of words relabelled is
+in the run record. Consecutive words of one speaker form a line; a line breaks at a pause over
+1.5 s or at sixty words. The speaker summary counts words and seconds per label in order of
+first appearance, with unlabelled words last. Display names default to Speaker 1, Speaker 2,
+... and can be changed. The diarizer's cluster numbers are renumbered by first appearance so
+that labels are contiguous.
+
+The speaker count is not forced by default (the design's rule): clustering by threshold makes
+a speaker the models cannot separate missing from the labels, where the per-speaker word counts
+show it, rather than hidden inside another label. A count can be given when it is known, as
+an explicit opt-in per batch (the window's Speakers control, the command line's `--speakers`);
+it is recorded in the run record, the document and the text header, with the caution.
 
 ## 3a. Non-speech scenes
 
@@ -144,8 +156,9 @@ transcript recording that its word times are approximate.
 
 ## 6. The window, top to bottom
 
-1. Top bar: the name, Open files, Open folder, the quality level, Transcribe (primary), Stop
-   while a batch runs, settings.
+1. Top bar: the name, Open files, Open folder, the quality level, the speaker count (Auto, or
+   a number when it is known; section 3), Transcribe (primary), Stop while a batch runs,
+   settings.
 2. A horizontal splitter:
    - left, the library: one row per recording with a state glyph (not transcribed, queued,
      running with a progress ring and bar, done with a tick, failed with a warning), its name,
@@ -221,9 +234,11 @@ external asset of any kind.
 ## 9. Command line
 
 `twinscribe app [paths] [--models DIR] [--dark] [--shot PNG]`, `twinscribe run <paths> [--models]
-[--out] [--quality] [--threads] [--author] [--keep-audio] [--no-recurse]`, `twinscribe check
-[--verify]`, `twinscribe export <transcript.json>` (render text, Word and subtitles again), and
-`twinscribe verify <review.json>`.
+[--out] [--quality] [--threads] [--device] [--speakers N] [--author] [--keep-audio]
+[--no-recurse]` (`--speakers` fixes the speaker count for the batch when it is known; the
+default clusters by threshold, section 3), `twinscribe check [--verify]`, `twinscribe export
+<transcript.json>` (render text, Word and subtitles again), and `twinscribe verify
+<review.json>`.
 
 ## 10. Tests
 

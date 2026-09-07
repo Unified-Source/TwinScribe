@@ -226,6 +226,48 @@ def test_detector_placement_follows_the_plan(recording: Path, models, tmp_path: 
     assert seen["publisher"] == {"provider": "cuda"} and seen["diarizer"] == {"provider": "cuda"}
 
 
+def test_speaker_count_is_an_explicit_opt_in(recording: Path, models, tmp_path: Path) -> None:
+    seen: dict[str, dict] = {}
+    result = process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
+    assert "num_speakers" not in seen["diarizer"]
+    assert result.run_record["settings"]["speakers"] is None
+    assert result.document["engines"]["diarization"]["settings"]["num_speakers"] is None
+    assert "clustering threshold 0.5" in result.outputs.text.read_text(encoding="utf-8")
+    assert result.run_record["settings"]["labelling"] == {"smoothed_words": 0, "min_run_words": 2, "min_run_s": 0.6}
+
+    seen.clear()
+    fixed = process_file(job_for(recording, models, tmp_path, speakers=2), engines=make_engines(kwargs_seen=seen))
+    assert seen["diarizer"]["num_speakers"] == 2
+    assert fixed.run_record["settings"]["speakers"] == 2
+    assert fixed.document["engines"]["diarization"]["settings"]["num_speakers"] == 2
+    assert "speaker count fixed at 2" in fixed.outputs.text.read_text(encoding="utf-8")
+
+
+def test_flicker_inside_an_utterance_is_smoothed(recording: Path, models, tmp_path: Path) -> None:
+    from tests._fixtures import TURNS
+
+    # A turn boundary jitters into the first utterance: its third word (1.3 to 1.8) falls in a
+    # sliver of the other speaker while the words on both sides stay with the first.
+    jittered = [(0.0, 1.3, "speaker_00"), (1.3, 1.8, "speaker_01"), (1.8, 3.6, "speaker_00")] + TURNS[1:]
+    from tests import _fixtures
+
+    original = _fixtures.diarization
+
+    def flickering(threshold=0.5, num_speakers=None):
+        return original(jittered, threshold=threshold, num_speakers=num_speakers)
+
+    engines = make_engines()
+    from dataclasses import replace
+
+    def diarizer(path, segmentation, embedding, threads=None, threshold=0.5, **kwargs):
+        return flickering(threshold=threshold)
+
+    result = process_file(job_for(recording, models, tmp_path), engines=replace(engines, diarizer=diarizer))
+    assert result.run_record["settings"]["labelling"]["smoothed_words"] == 1
+    first = result.document["lines"][0]
+    assert first["speaker"] == "speaker_00" and first["text"] == "good morning this is the first call"
+
+
 def test_onnx_detector_is_dispatched_without_ctranslate2(recording: Path, models, tmp_path: Path) -> None:
     calls: list[str] = []
     seen: dict[str, dict] = {}

@@ -84,7 +84,9 @@ def detector_transcript(model: str = "whisper-large-v3-turbo-ct2") -> Transcript
     return transcript("whisper_ct2", model, "production", sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
 
 
-def diarization(spec: list[tuple[float, float, str]] = TURNS, threshold: float = 0.5) -> Diarization:
+def diarization(
+    spec: list[tuple[float, float, str]] = TURNS, threshold: float = 0.5, num_speakers: int | None = None
+) -> Diarization:
     result = turns(spec)
     seconds: dict[str, float] = {}
     for turn in result:
@@ -96,7 +98,7 @@ def diarization(spec: list[tuple[float, float, str]] = TURNS, threshold: float =
         load_s=0.1,
         diarize_s=0.9,
         versions={"sherpa_onnx": "1.13"},
-        settings={"threshold": threshold, "num_speakers": None},
+        settings={"threshold": threshold, "num_speakers": num_speakers},
     )
 
 
@@ -201,7 +203,7 @@ def make_engines(
         note("diarizer", kwargs)
         if fail_diarizer:
             raise RuntimeError("embedding model rejected")
-        return diarization(threshold=threshold)
+        return diarization(threshold=threshold, num_speakers=kwargs.get("num_speakers"))
 
     def tagger(path, model_dir, regions, threads=None, provider="cpu", top_k=8, progress=None, **kwargs):
         note("tagger", kwargs)

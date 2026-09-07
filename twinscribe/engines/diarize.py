@@ -38,11 +38,17 @@ def turns_from_result(records: Iterable[Any]) -> tuple[SpeakerTurn, ...]:
     """Convert library segments (objects with start, end and speaker) into SpeakerTurn records.
 
     Turns are ordered by start time, then by end, then by label, so that the output is the
-    same regardless of the order the library returns them in.
+    same regardless of the order the library returns them in. The library's cluster numbers
+    can have holes (a cluster it discarded keeps its number); they are renumbered by order of
+    first appearance so that the labels read speaker_00, speaker_01 and so on.
     """
+    ordered = sorted(list(records), key=lambda r: (float(r.start), float(r.end), int(r.speaker)))
+    numbering: dict[int, int] = {}
+    for record in ordered:
+        numbering.setdefault(int(record.speaker), len(numbering))
     turns = [
-        SpeakerTurn(start=float(r.start), end=float(r.end), label=label_for(int(r.speaker)))
-        for r in records
+        SpeakerTurn(start=float(r.start), end=float(r.end), label=label_for(numbering[int(r.speaker)]))
+        for r in ordered
     ]
     turns.sort(key=lambda turn: (turn.start, turn.end, turn.label))
     return tuple(turns)

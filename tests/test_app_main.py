@@ -104,14 +104,15 @@ def wait_until(app: QApplication, condition, timeout_s: float = 30.0) -> None:
 
 
 def test_settings_round_trip_and_tolerance(tmp_path: Path) -> None:
-    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"], acceleration="cpu")
+    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"], acceleration="cpu", speakers=3)
     path = save_settings(settings, tmp_path / "s.json")
     loaded = load_settings(path)
-    assert loaded == settings
-    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no", "acceleration": "npu"}), encoding="utf-8")
+    assert loaded == settings and loaded.speakers_or_none == 3
+    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no", "acceleration": "npu", "speakers": 40}), encoding="utf-8")
     tolerant = load_settings(path)
     assert tolerant.threads == 0 and tolerant.volume == 1.0 and tolerant.output_mode == "beside" and tolerant.library == []
-    assert tolerant.acceleration == "auto"
+    assert tolerant.acceleration == "auto" and tolerant.speakers == 8
+    assert AppSettings().speakers_or_none is None
     assert load_settings(tmp_path / "absent.json") == AppSettings()
     assert AppSettings(output_mode="folder", output_dir="x").output_dir_or_none == Path("x")
     assert AppSettings(output_mode="folder").output_dir_or_none is None
@@ -443,6 +444,24 @@ def test_levels_follow_the_usable_backends(app: QApplication, tmp_path: Path, ho
     onnx = make_window(app, tmp_path, plan=make_plan_for(ct2=False))
     assert onnx.quality_box.count() == 3
     dispose(app, onnx)
+
+
+def test_speaker_count_from_the_window_reaches_the_diarizer(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    seen: dict[str, dict] = {}
+    window = make_window(app, tmp_path, engines=make_engines(kwargs_seen=seen))
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window.speakers_box.currentData() == 0 and window.settings.speakers_or_none is None
+    window.speakers_box.setCurrentIndex(window.speakers_box.findData(2))
+    assert window.settings.speakers == 2
+    assert window.start_transcription() is True
+    assert not window.speakers_box.isEnabled() and "speaker count fixed at 2" in window.statusBar().currentMessage()
+    wait_until(app, lambda: window.worker is None)
+    assert seen["diarizer"]["num_speakers"] == 2 and window.speakers_box.isEnabled()
+    assert "speaker count fixed at 2" in window.meta_label.text()
+    record = json.loads(output_paths(media["fresh"]).run.read_text(encoding="utf-8"))
+    assert record["settings"]["speakers"] == 2
+    dispose(app, window)
 
 
 def test_batch_reports_the_placement(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:

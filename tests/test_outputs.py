@@ -129,6 +129,15 @@ def test_plain_text_header_and_lines() -> None:
     assert text.endswith("goodbye\n") and "\nTranscript\n" in text
 
 
+def test_plain_text_names_a_fixed_speaker_count() -> None:
+    doc = make_document()
+    assert any("clustering threshold 0.5" in line for line in header_lines(doc))
+    doc["engines"]["diarization"]["settings"]["num_speakers"] = 2
+    header = header_lines(doc)
+    assert any("speaker count fixed at 2" in line and "hidden inside another label" in line for line in header)
+    assert not any("clustering threshold" in line for line in header)
+
+
 def test_plain_text_without_marks_or_speakers() -> None:
     doc = make_document(with_speakers=False)
     doc["marks"] = []
