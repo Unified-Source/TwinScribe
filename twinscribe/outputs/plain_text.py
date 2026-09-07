@@ -8,10 +8,39 @@ from collections.abc import Mapping
 from typing import Any
 
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.transcript_doc import approximate_word_times, clock, speaker_names
+from twinscribe.outputs.transcript_doc import (
+    approximate_word_times,
+    clock,
+    non_speech_summary,
+    scene_phrase,
+    speaker_names,
+)
 
 DRAFT_NOTICE = "A transcript is a draft until it has been verified against the recording."
 APPROXIMATE_NOTE = "its word times are approximate, so the review list may miss short gaps"
+
+
+def set_aside_note(doc: Mapping[str, Any]) -> str | None:
+    """The sentence on words set aside inside non-speech scenes, or None when there are none."""
+    totals = doc.get("non_speech") or {}
+    published = int(totals.get("suppressed_publisher_words", 0) or 0)
+    detector = int(totals.get("suppressed_detector_words", 0) or 0)
+    if not published and not detector:
+        return None
+    parts: list[str] = []
+    if published:
+        noun, verb = ("word", "was") if published == 1 else ("words", "were")
+        parts.append(
+            f"{published} {noun} the published engine wrote inside music or noise {verb} set aside "
+            "(listed in the run record)"
+        )
+    if detector:
+        noun, verb = ("word", "was") if detector == 1 else ("words", "were")
+        parts.append(
+            f"{detector} {noun} the second engine placed inside silence, music or noise {verb} left out of "
+            "the review list"
+        )
+    return "Set aside: " + "; ".join(parts) + "."
 
 
 def _engine_line(facts: Mapping[str, Any] | None) -> str:
@@ -71,21 +100,46 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
         )
     else:
         lines.append("Review list: no span where speech may be missing was found.")
+    summary = non_speech_summary(doc)
+    if summary:
+        lines.append(f"Without speech: {summary}; marked in the transcript.")
+    note = set_aside_note(doc)
+    if note:
+        lines.append(note)
     lines.append(DRAFT_NOTICE)
     return lines
 
 
+def transcript_entries(doc: Mapping[str, Any]) -> list[tuple[float, str, Mapping[str, Any]]]:
+    """Lines and scenes in time order as (start, kind, entry); a scene sorts before a line
+    that starts at the same moment."""
+    entries: list[tuple[float, int, str, Mapping[str, Any]]] = []
+    for line in doc.get("lines", []):
+        entries.append((float(line.get("start", 0.0)), 1, "line", line))
+    for scene in doc.get("scenes", []):
+        entries.append((float(scene.get("start", 0.0)), 0, "scene", scene))
+    entries.sort(key=lambda e: (e[0], e[1]))
+    return [(start, kind, entry) for start, _, kind, entry in entries]
+
+
 def transcript_lines(doc: Mapping[str, Any]) -> list[str]:
-    """One text line per transcript line, with a blank line between speakers."""
+    """One text line per transcript line, with a blank line between speakers; a scene marker
+    on a line of its own, set off by blank lines, where there is silence, music or noise."""
     names = speaker_names(doc)
     out: list[str] = []
     previous: object = object()
-    for line in doc.get("lines", []):
-        label = line.get("speaker")
+    for start, kind, entry in transcript_entries(doc):
+        if kind == "scene":
+            if out:
+                out.append("")
+            out.append(f"[{clock(start)}] ({scene_phrase(entry)})")
+            previous = object()
+            continue
+        label = entry.get("speaker")
         name = names.get(label, label) if label is not None else UNLABELLED_NAME
         if out and label != previous:
             out.append("")
-        out.append(f"[{clock(float(line.get('start', 0.0)))}] {name}: {line.get('text', '')}")
+        out.append(f"[{clock(start)}] {name}: {entry.get('text', '')}")
         previous = label
     return out
 

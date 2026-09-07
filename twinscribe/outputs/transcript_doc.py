@@ -65,6 +65,57 @@ def overview_peaks(samples: np.ndarray, bins: int = OVERVIEW_BINS) -> list[int]:
 WORD_TIMING_TOKEN = "token"
 WORD_TIMING_SEGMENT = "segment"
 
+SCENE_NOUNS: dict[str, str] = {
+    "silence": "silence",
+    "music": "music",
+    "noise": "background noise",
+    "sound": "sound",
+}
+
+
+def format_seconds(seconds: float) -> str:
+    """6 s, 45 s, 1 min, 2 min 30 s."""
+    whole = max(0, int(round(seconds)))
+    if whole < 60:
+        return f"{whole} s"
+    minutes, rest = divmod(whole, 60)
+    return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+
+
+def scene_noun(entry: Mapping[str, Any]) -> str:
+    """The noun for a scene: silence, music, background noise, sound, or sound (Siren)."""
+    kind = str(entry.get("kind", "sound"))
+    label = str(entry.get("label") or "").strip()
+    noun = SCENE_NOUNS.get(kind, "sound")
+    if kind == "sound" and label:
+        return f"sound ({label})"
+    return noun
+
+
+def scene_phrase(entry: Mapping[str, Any]) -> str:
+    """What a scene marker says: "silence, 6 s" or "music, no speech, 12 s"."""
+    duration = format_seconds(float(entry.get("end", 0.0)) - float(entry.get("start", 0.0)))
+    noun = scene_noun(entry)
+    if str(entry.get("kind", "")) == "silence":
+        return f"{noun}, {duration}"
+    return f"{noun}, no speech, {duration}"
+
+
+def scene_tag(entry: Mapping[str, Any]) -> str:
+    """The short bracketed form for subtitles: [music], [background noise], [sound: Siren]."""
+    kind = str(entry.get("kind", "sound"))
+    label = str(entry.get("label") or "").strip()
+    if kind == "sound" and label:
+        return f"[sound: {label}]"
+    return f"[{SCENE_NOUNS.get(kind, 'sound')}]"
+
+
+def non_speech_summary(doc: Mapping[str, Any]) -> str:
+    """One phrase for the header: "silence 14 s, music 21 s", or empty when there is none."""
+    totals = (doc.get("non_speech") or {}).get("seconds_by_kind") or {}
+    parts = [f"{SCENE_NOUNS.get(kind, kind)} {format_seconds(float(seconds))}" for kind, seconds in totals.items() if float(seconds) > 0.0]
+    return ", ".join(parts)
+
 
 def _engine_facts(transcript: Transcript) -> dict[str, str]:
     facts = {"engine": transcript.engine, "model": transcript.model, "preset": transcript.preset}
@@ -115,11 +166,16 @@ def build_document(
     names: Mapping[str, str] | None = None,
     speaker_failure: str | None = None,
     output_base: str | None = None,
+    scenes: Sequence[Any] = (),
+    non_speech: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the transcript document from the parts of a run.
 
     `output_base` is the name the sibling outputs share (normally the recording's stem); the
-    text and Word renderers use it to point at the review list.
+    text and Word renderers use it to point at the review list. `scenes` are the non-speech
+    stretches (objects with start, end, kind, label and probability) and `non_speech` the
+    totals of the scene pass: seconds by kind, the words set aside from each engine, whether
+    a tagger ran.
     """
     counts = summarise_speakers(lines)
     assigned = dict(default_names(c.label for c in counts))
@@ -187,6 +243,19 @@ def build_document(
             "seconds": float(review_seconds),
             "fraction": float(review_seconds / duration_s) if duration_s > 0.0 else 0.0,
         },
+        "scenes": [
+            {
+                "start": float(s.start),
+                "end": float(s.end),
+                "kind": str(s.kind),
+                "label": str(getattr(s, "label", "") or ""),
+                "probability": float(getattr(s, "probability", 0.0) or 0.0),
+            }
+            for s in scenes
+        ],
+        "non_speech": dict(non_speech)
+        if non_speech
+        else {"seconds_by_kind": {}, "suppressed_publisher_words": 0, "suppressed_detector_words": 0, "tagged": False},
         "overview": {"scale": OVERVIEW_SCALE, "peaks": [int(p) for p in overview]},
     }
 

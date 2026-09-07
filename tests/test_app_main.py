@@ -66,7 +66,8 @@ def media(tmp_path: Path) -> dict[str, Path]:
     detector = detector_transcript()
     marks = build_review(published.words, detector.words, 30.0)
     write_review_set(review_set(published, detector, "call.wav", marks), paths.review)
-    fresh = audio.synthetic_wav(folder / "fresh.wav", 4.0)
+    # As long as the fixture transcript, so that no pause falls beyond the audio and reads as silence.
+    fresh = audio.synthetic_wav(folder / "fresh.wav", 30.0)
     return {"folder": folder, "done": done, "fresh": fresh}
 
 
@@ -264,6 +265,30 @@ def test_clicking_a_gap_marker_plays_its_span(app: QApplication, tmp_path: Path,
     assert window.player_bar.timeline.playhead() == pytest.approx(13.5)
     window.play_mark(7)                                    # out of range: nothing happens
     assert window.player_bar.timeline.playhead() == pytest.approx(13.5)
+    dispose(app, window)
+
+
+def test_scene_markers_in_the_pane_seek_on_click(app: QApplication, tmp_path: Path, home: Path) -> None:
+    from twinscribe.app.transcript_view import KIND_SCENE
+    from twinscribe.scenes import Scene
+
+    window = make_window(app, tmp_path)
+    doc = make_document(scenes=(Scene(13.9, 24.0, "music", "", 0.8),))
+    view = window.transcript_view
+    view.set_document(doc)
+    assert view.line_count() == 4
+    text = view.toPlainText()
+    assert "music, no speech, 10 s, to 0:24.0. Click to listen." in text
+    assert text.count("Possible missed speech") == 1                   # the mark inside the music is gone
+    scene_blocks = [number for number, (kind, _) in view._block_info.items() if kind == KIND_SCENE]
+    assert len(scene_blocks) == 1
+    block = view.document().findBlockByNumber(scene_blocks[0])
+    rect = view.document().documentLayout().blockBoundingRect(block)
+    received: list[float] = []
+    view.seek_requested.connect(received.append)
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     rect.center().toPoint())
+    assert received == [13.9]
     dispose(app, window)
 
 

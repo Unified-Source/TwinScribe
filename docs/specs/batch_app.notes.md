@@ -223,3 +223,32 @@ its own.
   timeline clamped the playhead to a duration it did not know yet (zero until the player
   reports it), which flattened the same click to zero on the bar while the time readout showed
   the right value; the clamp now applies only once a duration is known.
+
+## Non-speech scenes
+
+A report that silence appeared to be filled in. Measured on a synthesised fixture (110 s, two
+voices, three silences of 3 to 6 s, two music passages of 9 and 12 s, one noise passage of 8 s,
+two lines spoken over faint music), with the native engines: the published engine wrote nothing
+inside any passage, because the voice detector passed neither the synthetic music nor the
+noise, so the words "inside" a passage in a naive count were the last word of the utterance
+before it, whose end the transducer places at the utterance's end. The second engine
+hallucinated one word inside the music and one inside the noise, and the review list carried
+one false mark on the music passage, which is the reported failure: the review list, not the
+transcript, was filling silence, and with the detector's approximate word times a real word
+after the music was spread into it as well.
+
+- With the scene pass all six passages are found with the right kind (silence by level, music
+  and background noise by the tagger), the transcript carries a marker for each, the review
+  list has no mark, one detector word is set aside, and both lines over faint music are kept
+  with their speaker labels.
+- The utterance rule (words set aside when the tagger is confident an utterance holds no
+  speech) was not exercised by the fixture, since no utterance was non-speech; it is covered
+  by the unit tests and guarded three ways: never on level alone, never under one and a half
+  seconds, and only with speech below 0.15 and music or noise at 0.5 or more. The design's
+  rule for silence stripping (log every removed region) is met by listing every utterance set
+  aside in the run record with its text.
+- The tagger is optional. Without its model the pass still marks silence by level (-50 dBFS)
+  and calls a loud pause sound of an unknown kind; the detector's words inside those are left
+  out of the review list too.
+- The stage weights moved to make room for the pass (publisher 0.32, detector 0.38, scenes
+  0.03); the job card's strip gained a "Non-speech" step.

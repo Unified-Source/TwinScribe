@@ -3,8 +3,10 @@
 The document is laid out once per recording as one text block per line, with the time in a
 narrow gutter, the speaker in colour and the words in the reading face. Spans the review list
 flagged appear between the lines as gap markers; a listener's resolution from a review session
-is shown under its marker. As the audio plays, the line under the playhead is highlighted and
-kept in view. Clicking a time, a gap marker or double-clicking a line seeks to it.
+is shown under its marker. Stretches without speech (silence, music, background noise, other
+sound) appear as muted markers naming what is there. As the audio plays, the line under the
+playhead is highlighted and kept in view. Clicking a time, a gap marker or a scene marker, or
+double-clicking a line, seeks to it.
 """
 
 from __future__ import annotations
@@ -30,10 +32,11 @@ from PySide6.QtWidgets import QTextEdit, QWidget
 
 from twinscribe.app.theme import Theme, theme_for, with_alpha
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.transcript_doc import clock, speaker_names
+from twinscribe.outputs.transcript_doc import clock, scene_phrase, speaker_names
 
 KIND_LINE = "line"
 KIND_MARK = "mark"
+KIND_SCENE = "scene"
 FOLLOW_HOLD_S = 4.0
 GUTTER_CHARS = 9
 
@@ -153,9 +156,11 @@ class TranscriptView(QTextEdit):
 
         events: list[tuple[float, int, str, int]] = []
         for index, line in enumerate(doc.get("lines", [])):
-            events.append((float(line.get("start", 0.0)), 1, KIND_LINE, index))
+            events.append((float(line.get("start", 0.0)), 2, KIND_LINE, index))
         for index, mark in enumerate(doc.get("marks", [])):
-            events.append((float(mark.get("span_start", mark.get("start", 0.0))), 0, KIND_MARK, index))
+            events.append((float(mark.get("span_start", mark.get("start", 0.0))), 1, KIND_MARK, index))
+        for index, scene in enumerate(doc.get("scenes", [])):
+            events.append((float(scene.get("start", 0.0)), 0, KIND_SCENE, index))
         events.sort(key=lambda e: (e[0], e[1]))
 
         line_format = QTextBlockFormat()
@@ -167,6 +172,16 @@ class TranscriptView(QTextEdit):
         mark_block.setBottomMargin(6.0)
         mark_block.setLeftMargin(0.0)
         mark_block.setBackground(with_alpha(self._theme.warning, 22))
+        scene_block = QTextBlockFormat()
+        scene_block.setTopMargin(6.0)
+        scene_block.setBottomMargin(6.0)
+        scene_block.setLeftMargin(0.0)
+        scene_format = QTextCharFormat()
+        scene_font = QFont(self.font())
+        scene_font.setPointSizeF(9.5)
+        scene_font.setItalic(True)
+        scene_format.setFont(scene_font)
+        scene_format.setForeground(self._theme.muted)
 
         text_document = QTextDocument(self)
         text_document.setDocumentMargin(18.0)
@@ -193,6 +208,20 @@ class TranscriptView(QTextEdit):
                 self._block_info[block_number] = (KIND_LINE, index)
                 self._line_starts.append(start)
                 self._line_blocks.append(block_number)
+            elif kind == KIND_SCENE:
+                if first:
+                    cursor.setBlockFormat(scene_block)
+                else:
+                    cursor.insertBlock(scene_block)
+                scene = doc["scenes"][index]
+                block_number = cursor.blockNumber()
+                cursor.insertText(f"{clock(start):>{GUTTER_CHARS}}  ", time_format)
+                self._gutter_end[block_number] = cursor.positionInBlock()
+                cursor.insertText(
+                    f"{scene_phrase(scene)}, to {clock(float(scene.get('end', start)))}. Click to listen.",
+                    scene_format,
+                )
+                self._block_info[block_number] = (KIND_SCENE, index)
             else:
                 if first:
                     cursor.setBlockFormat(mark_block)
@@ -283,6 +312,11 @@ class TranscriptView(QTextEdit):
                 kind, index, position = found
                 if kind == KIND_MARK:
                     self.mark_requested.emit(index)
+                    event.accept()
+                    return
+                if kind == KIND_SCENE:
+                    scene = (self._doc or {}).get("scenes", [])[index]
+                    self.seek_requested.emit(float(scene.get("start", 0.0)))
                     event.accept()
                     return
                 block_number = self.cursorForPosition(event.position().toPoint()).block().blockNumber()

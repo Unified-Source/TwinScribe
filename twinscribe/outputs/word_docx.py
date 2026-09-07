@@ -20,8 +20,14 @@ from xml.sax.saxutils import escape
 
 from twinscribe import __version__
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.plain_text import APPROXIMATE_NOTE, DRAFT_NOTICE
-from twinscribe.outputs.transcript_doc import approximate_word_times, clock, speaker_names
+from twinscribe.outputs.plain_text import APPROXIMATE_NOTE, DRAFT_NOTICE, set_aside_note, transcript_entries
+from twinscribe.outputs.transcript_doc import (
+    approximate_word_times,
+    clock,
+    non_speech_summary,
+    scene_phrase,
+    speaker_names,
+)
 
 APPLICATION_NAME = "twinscribe"
 MUTED = "7F7F7F"
@@ -116,10 +122,18 @@ def _clean(text: object) -> str:
     return escape(_CONTROL_CHARS.sub("", str(text)))
 
 
-def _run(text: object, bold: bool = False, colour: str | None = None, size_half_points: int | None = None) -> str:
+def _run(
+    text: object,
+    bold: bool = False,
+    colour: str | None = None,
+    size_half_points: int | None = None,
+    italic: bool = False,
+) -> str:
     properties = ""
     if bold:
         properties += "<w:b/>"
+    if italic:
+        properties += "<w:i/>"
     if colour:
         properties += f'<w:color w:val="{colour}"/>'
     if size_half_points:
@@ -235,9 +249,23 @@ def document_body(doc: Mapping[str, Any]) -> str:
     else:
         review_text = "Review list: no span where speech may be missing was found. "
     parts.append(_paragraph(_run(review_text + DRAFT_NOTICE), "Meta"))
+    summary = non_speech_summary(doc)
+    if summary:
+        parts.append(_paragraph(_run(f"Without speech: {summary}; marked in the transcript."), "Meta"))
+    note = set_aside_note(doc)
+    if note:
+        parts.append(_paragraph(_run(note), "Meta"))
     parts.append(_paragraph(_run("Transcript"), "Heading1"))
-    for line in doc.get("lines", []):
-        label = line.get("speaker")
+    for start, kind, entry in transcript_entries(doc):
+        if kind == "scene":
+            runs = (
+                _run(clock(start), colour=MUTED, size_half_points=18)
+                + _tab()
+                + _run(f"({scene_phrase(entry)})", colour=MUTED, italic=True)
+            )
+            parts.append(_paragraph(runs, "TranscriptLine"))
+            continue
+        label = entry.get("speaker")
         if label is not None:
             name = names.get(label, label)
             colour = colours.get(label, MUTED)
@@ -245,11 +273,11 @@ def document_body(doc: Mapping[str, Any]) -> str:
             name = UNLABELLED_NAME
             colour = MUTED
         runs = (
-            _run(clock(float(line.get("start", 0.0))), colour=MUTED, size_half_points=18)
+            _run(clock(start), colour=MUTED, size_half_points=18)
             + _tab()
             + _run(name, bold=True, colour=colour)
             + _tab()
-            + _run(line.get("text", ""))
+            + _run(entry.get("text", ""))
         )
         parts.append(_paragraph(runs, "TranscriptLine"))
     if not doc.get("lines"):

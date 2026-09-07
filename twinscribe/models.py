@@ -29,7 +29,8 @@ ROLE_DETECTOR = "detector"
 ROLE_VAD = "vad"
 ROLE_SEGMENTATION = "segmentation"
 ROLE_EMBEDDING = "embedding"
-ROLES: tuple[str, ...] = (ROLE_PUBLISHER, ROLE_DETECTOR, ROLE_VAD, ROLE_SEGMENTATION, ROLE_EMBEDDING)
+ROLE_TAGGER = "tagging"
+ROLES: tuple[str, ...] = (ROLE_PUBLISHER, ROLE_DETECTOR, ROLE_VAD, ROLE_SEGMENTATION, ROLE_EMBEDDING, ROLE_TAGGER)
 
 STATUS_VERIFIED = "verified"
 STATUS_MISMATCH = "mismatch"
@@ -110,6 +111,8 @@ KEY_WHISPER_LARGE_ONNX = "whisper-large-v3-onnx"
 KEY_SILERO_VAD = "silero-vad"
 KEY_SEGMENTATION = "pyannote-segmentation-3.0"
 KEY_EMBEDDING = "titanet-large"
+KEY_AUDIO_TAGGER = "ced-mini-audio-tagging"
+_TAGGER_FILES: tuple[str, ...] = ("model.int8.onnx", "class_labels_indices.csv")
 
 _ONNX_WHISPER_NOTE = (
     "Detector for machines without CTranslate2 (Windows on ARM); word times are spread inside "
@@ -242,6 +245,19 @@ CATALOGUE: tuple[ModelSpec, ...] = (
             ),
         ),
         note="The spelling of the release tag is the upstream project's own.",
+    ),
+    ModelSpec(
+        key=KEY_AUDIO_TAGGER,
+        role=ROLE_TAGGER,
+        title="CED-mini audio tagger, int8 ONNX export",
+        licence="Apache-2.0",
+        credit="The CED authors; ONNX export distributed by the sherpa-onnx project; AudioSet class labels (CC BY 4.0)",
+        required=_TAGGER_FILES,
+        sources=archive_sources(
+            _SHERPA_RELEASES + "audio-tagging-models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2",
+            _TAGGER_FILES,
+        ),
+        note="Marks silence, music and background noise; optional, the pipeline runs without it.",
     ),
 )
 

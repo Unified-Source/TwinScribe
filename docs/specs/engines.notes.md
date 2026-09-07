@@ -163,3 +163,22 @@ lock. Nothing in the three wrappers needed changing to run live.
     callback that receives each segment as it is decoded (the transducer per utterance, the
     CTranslate2 Whisper per library segment, the ONNX Whisper per window). Both exist for the
     application's job card; neither changes what the wrappers return.
+
+## The audio tagger
+
+22. **`engines/tagging.py`** wraps sherpa-onnx audio tagging with the CED-mini model (int8,
+    10 MB; the library also carries a zipformer tagger, at thirty times the download). The
+    binding of the installed version exposes the CED model only as a constructor argument
+    (`ced=`), not as an attribute of the model configuration, which is why the wrapper builds
+    the configuration in one call. Measured on this machine (not quotable): the model loads in
+    a fraction of a second and tags ten seconds of audio in tens of milliseconds, so the scene
+    pass costs nothing beside the engines. What the model said on synthetic signals and the
+    synthesised voices, which set the class families and thresholds of the scene pass: digital
+    silence and room tone at -55 dBFS tagged Silence or White noise at 0.3 to 0.5; white noise
+    at -20 dBFS tagged White noise, Noise and Static; low-passed noise tagged Waterfall, Stream
+    and Pink noise (so water and weather classes count as background noise); a synthesised
+    arpeggio tagged Music at 0.67 to 0.82 with Synthesizer beside it; the synthesised voices
+    tagged Speech synthesizer at 0.5 to 0.9 and Speech at 0.4 to 0.6, also at -20 dB and over
+    music at a quarter of the level, so the speech family includes the synthesiser class and
+    the keep threshold sits at 0.3; a one-word utterance of a third of a second tagged Music at
+    0.47, which is why no utterance under one and a half seconds is judged.
