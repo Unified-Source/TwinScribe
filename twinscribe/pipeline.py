@@ -106,11 +106,32 @@ class OutputPaths:
         }
 
 
+def has_sibling_with_same_stem(source: Path) -> bool:
+    """True when another recording with the same stem sits beside `source` (call.mp3 by call.wav)."""
+    try:
+        entries = list(source.parent.iterdir())
+    except OSError:
+        return False
+    stem = source.stem.lower()
+    name = source.name.lower()
+    return any(
+        entry.name.lower() != name and entry.stem.lower() == stem and is_media(entry) and entry.is_file()
+        for entry in entries
+    )
+
+
+def output_base(source: str | os.PathLike[str]) -> str:
+    """The name the outputs of a recording share: its stem, or its full name when another
+    recording with the same stem sits beside it, so that the two never overwrite each other."""
+    src = Path(source)
+    return src.name if has_sibling_with_same_stem(src) else src.stem
+
+
 def output_paths(source: str | os.PathLike[str], out_dir: str | os.PathLike[str] | None = None) -> OutputPaths:
-    """Output paths for a recording: beside it, or in out_dir when given, named by its stem."""
+    """Output paths for a recording: beside it, or in out_dir when given, named by `output_base`."""
     src = Path(source)
     folder = Path(out_dir) if out_dir is not None else src.parent
-    stem = src.stem
+    stem = output_base(src)
     return OutputPaths(
         transcript=folder / f"{stem}.transcript.json",
         text=folder / f"{stem}.txt",
@@ -358,6 +379,7 @@ def process_file(
             source_sha256=digest,
             source_bytes=size,
             video=is_video(source),
+            output_base=paths.transcript.name[: -len(".transcript.json")],
             duration_s=audio_s,
             profile=profile.name,
             publisher=published,

@@ -94,3 +94,44 @@ the words.
 18. **The `quick` Whisper preset.** Production with greedy decoding (beam 1) and word times
     on. The benchmark preset has word times off and so cannot feed the review list; the quick
     quality level of the application needed a preset that can.
+
+## Exercised live, on the development machine
+
+After the first delivery the libraries were installed: sherpa-onnx natively on the 64-bit
+ARM interpreter, and the whole engines extra in a second, x64 environment under the platform's
+emulation, because CTranslate2 publishes no wheel for the native architecture. The
+standard-profile models were fetched with `tools/fetch_models.py` and verified against the
+lock. Nothing in the three wrappers needed changing to run live.
+
+- The three live tests pass: `test_parakeet_live` and `test_diarize_live` natively and under
+  emulation, `test_whisper_live` under emulation.
+- Called directly on a synthesised two-voice conversation (two speech-synthesiser voices
+  reading a 28-line script; 143 seconds; 335 script words), the transducer returned 324 words
+  from 46 voice-detected segments covering 96 seconds of speech, Whisper large-v3-turbo 335
+  words in 31 segments, and the diarizer two labels of 56.9 and 42.9 seconds. Scored with the
+  project's own metrics against the script:
+
+  | Engine | WER raw | WER normalised | S / D / I, normalised |
+  |---|---|---|---|
+  | transducer (published) | 7.5 per 100 words | 3.6 | 5 / 6 / 1 |
+  | Whisper large-v3-turbo (detector) | 5.7 per 100 words | 1.5 | 4 / 0 / 1 |
+
+  The deletions sit with the transducer and none with Whisper, the direction the design
+  describes. Review list at the design's rule: 5 marks, all five on speech, 7.0 per cent of
+  the audio to listen to; every mark sat on a phrase the transducer had dropped, the detector's
+  hints being "Is it the same", "It does.", "The booking", "What do" and "No, that". Against
+  script word times spread evenly inside each line (approximate, so the dropped-word count
+  of 30 is inflated by timing), the marks covered 7 dropped words. Diarization against the
+  scripted line spans: DER 15.4 per cent, all of it miss (turns shorter than the scripted
+  spans, which include the synthesiser's padding), no false alarm, no confusion, JER 15.2 per
+  cent, both speakers mapped and none unmatched.
+- Timings under emulation for the 143 second file, recorded as observed and not comparable
+  with any other machine: transducer load 2.3 s and decode 19.1 s; Whisper load 4.4 s and
+  decode 97.8 s; diarizer 22.8 s. The run records flagged other load on the machine. No figure
+  here is to be quoted; the design document reserves speed for the lab hardware.
+- `library_versions()` reports the onnxruntime version sherpa-onnx bundles (1.27.1 here),
+  which differs from the onnxruntime package installed beside it (1.29.0); the run record
+  therefore names the runtime the transducer actually used, which is the right one.
+- Both `progress` callbacks fired as specified and drove the window's progress display.
+- Synthesised speech is studio-clean, two voices, no overlap: these figures show that the
+  chain works, not what it does on recordings.

@@ -200,7 +200,7 @@ def document_body(doc: Mapping[str, Any]) -> str:
     noun = "speaker" if len(labelled) == 1 else "speakers"
     review = doc.get("review", {})
     marks = int(review.get("marks", 0))
-    stem = str(source.get("name", "")).rsplit(".", 1)[0]
+    stem = str(source.get("outputs") or str(source.get("name", "")).rsplit(".", 1)[0])
 
     parts = [
         _paragraph(_run(source.get("name", "")), "Title"),

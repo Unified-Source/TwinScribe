@@ -60,6 +60,33 @@ def test_output_paths_beside_and_in_folder(tmp_path: Path) -> None:
     assert elsewhere.transcript.parent == tmp_path / "out"
 
 
+def test_output_paths_avoid_stem_collisions(tmp_path: Path) -> None:
+    first = tmp_path / "call.mp3"
+    first.write_bytes(b"")
+    assert output_paths(first).text == tmp_path / "call.txt"
+    (tmp_path / "call.txt").write_bytes(b"")                  # a non-media sibling does not count
+    assert output_paths(first).subtitles == tmp_path / "call.srt"
+    second = tmp_path / "call.wav"
+    second.write_bytes(b"")
+    assert output_paths(first).text == tmp_path / "call.mp3.txt"
+    assert output_paths(second).subtitles == tmp_path / "call.wav.srt"
+    assert output_paths(first).transcript != output_paths(second).transcript
+    assert output_paths(tmp_path / "other.wav").review == tmp_path / "other.review.json"
+
+
+def test_same_stem_recordings_keep_separate_outputs(models, tmp_path: Path) -> None:
+    folder = tmp_path / "media"
+    folder.mkdir()
+    wav = audio.synthetic_wav(folder / "call.wav", 3.0)
+    (folder / "call.mp4").write_bytes(b"not a video")
+    result = process_file(job_for(wav, models, tmp_path), engines=make_engines())
+    assert result.outputs.transcript == folder / "call.wav.transcript.json"
+    assert result.document["source"]["outputs"] == "call.wav"
+    assert "see call.wav.review.json" in result.outputs.text.read_text(encoding="utf-8")
+    review = json.loads(result.outputs.review.read_text(encoding="utf-8"))
+    assert review["audio"] == "call.wav"
+
+
 def test_media_extension_rules() -> None:
     assert is_media("x.MP3") and is_media("y.mkv") and not is_media("z.txt") and not is_media("call.transcript.json")
     assert is_video("a.mp4") and is_video("b.AVI") and not is_video("c.wav")

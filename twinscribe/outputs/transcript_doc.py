@@ -100,8 +100,13 @@ def build_document(
     produced_utc: str,
     names: Mapping[str, str] | None = None,
     speaker_failure: str | None = None,
+    output_base: str | None = None,
 ) -> dict[str, Any]:
-    """Assemble the transcript document from the parts of a run."""
+    """Assemble the transcript document from the parts of a run.
+
+    `output_base` is the name the sibling outputs share (normally the recording's stem); the
+    text and Word renderers use it to point at the review list.
+    """
     counts = summarise_speakers(lines)
     assigned = dict(default_names(c.label for c in counts))
     if names:
@@ -125,6 +130,7 @@ def build_document(
             "sha256": source_sha256,
             "bytes": int(source_bytes),
             "video": bool(video),
+            "outputs": output_base or source_name.rsplit(".", 1)[0],
         },
         "duration_s": float(duration_s),
         "engines": {

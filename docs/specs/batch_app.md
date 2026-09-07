@@ -51,7 +51,9 @@ Speaker 1, Speaker 2, ... and can be changed.
 
 ## 4. Outputs per recording
 
-Beside the recording (or in one chosen folder), named by the recording's stem:
+Beside the recording (or in one chosen folder), named by the recording's stem, or by its full
+file name when another recording with the same stem sits beside it (`call.mp3` beside
+`call.wav`), so that two recordings never overwrite each other's outputs:
 
 1. `<stem>.transcript.json` (schema `twinscribe.transcript.v1`): source name, digest and size;
    duration; engines; speakers with names, word and second counts; lines with their words and

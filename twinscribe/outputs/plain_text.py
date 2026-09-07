@@ -59,7 +59,7 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
     lines.append("")
     review = doc.get("review", {})
     marks = int(review.get("marks", 0))
-    stem = str(source.get("name", "")).rsplit(".", 1)[0]
+    stem = str(source.get("outputs") or str(source.get("name", "")).rsplit(".", 1)[0])
     if marks:
         span_noun = "span" if marks == 1 else "spans"
         share = 100.0 * float(review.get("fraction", 0.0))
