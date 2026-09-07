@@ -188,3 +188,38 @@ Windows 11, 64-bit ARM, PySide6 6.11.2 with the FFmpeg multimedia backend.
   button therefore reports the Whisper library as not installed in the native environment;
   the pipeline was driven from the command line of the x64 environment instead. On the lab
   hardware, where every wheel is native, one environment serves both.
+
+## Reading the provisional lines while they are written
+
+The first form of the job card appended every line to a plain text pane and moved its cursor
+to the end, so the pane was pulled to the newest line whatever the reader was looking at. The
+lines are now items of a list widget, which gives each line a click target and a background of
+its own.
+
+- Following is a state, not a timer: the list follows the newest line only while the reader
+  is at the bottom. Scrolling up (any amount) or clicking a line holds the view; scrolling
+  back to the bottom, or the button, follows again. The finished transcript pane keeps its
+  own rule (a manual scroll pauses following for a few seconds) because there the audio, not
+  an engine, drives the view; the two rules were kept apart on purpose.
+- The scroll bar's valueChanged signal is the only way the widget reports a scroll, and the
+  card's own scrolls fire it too; a flag set around every programmatic scroll tells the two
+  apart. Adding an item does not move the value, so lines arriving while the view is held
+  leave it where it was; they are counted and the button back to the latest line says how
+  many.
+- `scrollToBottom()` runs any pending layout before it reads the maximum, so a scroll issued
+  right after `addItem()` lands on the new item; the offscreen tests rely on this.
+- The list takes no keyboard focus, so Space, the arrows and the other keys of the window keep
+  their meaning while the reader clicks in the list. A click seeks, a double-click seeks and
+  plays; the second click of a double-click also arrives as a click, which is harmless because
+  both seek to the same time.
+- The line under the playhead is highlighted with the same tint as the finished pane uses and,
+  while the view is held and the follow toggle is on, is kept in view; while the list follows
+  the newest line, the highlight moves without scrolling, since the reader asked to see the
+  newest lines rather than the audio.
+- Two defects surfaced when a line was clicked just after a recording was selected. The
+  multimedia backend answers a seek issued while the media is still loading by keeping the
+  position at zero, so the window now holds such a seek and applies it when the status turns
+  to loaded (position reports from the loading source are ignored meanwhile). And the
+  timeline clamped the playhead to a duration it did not know yet (zero until the player
+  reports it), which flattened the same click to zero on the bar while the time readout showed
+  the right value; the clamp now applies only once a duration is known.

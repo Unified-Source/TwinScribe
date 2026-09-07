@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
         self._current_doc: dict[str, Any] | None = None
         self._current_path: Path | None = None
         self._stop_at_s: float | None = None
+        self._pending_seek_s: float | None = None
         self._player_error: str | None = None
         self._duration_s = 0.0
         self._position_s = 0.0
@@ -475,6 +476,8 @@ class MainWindow(QMainWindow):
         self.transcript_view.seek_requested.connect(self.seek)
         self.transcript_view.mark_requested.connect(self.play_mark)
         self.job_card = JobStatusCard(detail, self.theme)
+        self.job_card.seek_requested.connect(self.seek)
+        self.job_card.play_requested.connect(self.play_from)
         self.detail_stack = QStackedLayout()
         self.detail_stack.addWidget(self.transcript_view)
         self.detail_stack.addWidget(self.job_card)
@@ -533,6 +536,7 @@ class MainWindow(QMainWindow):
             self.audio_output.setVolume(float(self.settings.volume))
             self.player.setPlaybackRate(float(self.settings.rate))
             self.player.positionChanged.connect(self._on_position_changed)
+            self.player.mediaStatusChanged.connect(self._on_media_status_changed)
             self.player.durationChanged.connect(self._on_duration_changed)
             self.player.playbackStateChanged.connect(self._on_playback_state_changed)
             self.player.hasVideoChanged.connect(self._on_has_video_changed)
@@ -545,6 +549,7 @@ class MainWindow(QMainWindow):
         self.player_bar.set_rate(self.settings.rate)
         self.player_bar.set_follow(self.settings.follow)
         self.transcript_view.set_follow(self.settings.follow)
+        self.job_card.set_follow(self.settings.follow)
 
     def _apply_theme_widgets(self) -> None:
         text_colour = self.palette().color(self.palette().ColorRole.Text)
@@ -1075,9 +1080,11 @@ class MainWindow(QMainWindow):
 
     def _set_source(self, path: Path) -> None:
         self._stop_at_s = None
+        self._pending_seek_s = None
         self._position_s = 0.0
         self.player_bar.set_position(0.0)
         self.transcript_view.set_position(-1.0)
+        self.job_card.set_position(-1.0)
         if self.player is None:
             self.player_bar.set_available(False)
             return
@@ -1114,8 +1121,36 @@ class MainWindow(QMainWindow):
         self._position_s = seconds
         self.player_bar.set_position(seconds)
         self.transcript_view.set_position(seconds)
+        self.job_card.set_position(seconds)
         if self.player is not None and self._current_path is not None:
+            if self.player.mediaStatus() == QMediaPlayer.MediaStatus.LoadingMedia:
+                # A seek during loading is answered with position zero; it is applied once the
+                # media has loaded instead, so a click on a line just after selecting a
+                # recording lands where it was aimed.
+                self._pending_seek_s = seconds
+            else:
+                self._pending_seek_s = None
+                self.player.setPosition(int(round(seconds * 1000.0)))
+
+    def _on_media_status_changed(self, status) -> None:
+        if self._pending_seek_s is None or self.player is None:
+            return
+        if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            seconds = self._pending_seek_s
+            self._pending_seek_s = None
             self.player.setPosition(int(round(seconds * 1000.0)))
+            self._position_s = seconds
+            self.player_bar.set_position(seconds)
+        elif status in (QMediaPlayer.MediaStatus.InvalidMedia, QMediaPlayer.MediaStatus.NoMedia):
+            self._pending_seek_s = None
+
+    def play_from(self, seconds: float) -> None:
+        """Move the playhead to `seconds` and play on from there (a provisional line was double-clicked)."""
+        self._stop_at_s = None
+        self._seek(seconds)
+        if self.player is None or self._current_path is None:
+            return
+        self.player.play()
 
     def nudge(self, delta_s: float) -> None:
         self.seek(self._position_s + delta_s)
@@ -1155,10 +1190,14 @@ class MainWindow(QMainWindow):
         self.play_mark(index)
 
     def _on_position_changed(self, position_ms: int) -> None:
+        if self._pending_seek_s is not None:
+            return  # reports from a source still loading; the held seek is applied when it has
         seconds = position_ms / 1000.0
         self._position_s = seconds
         self.player_bar.set_position(seconds)
         self.transcript_view.set_position(seconds)
+        if self.job_card_visible():
+            self.job_card.set_position(seconds)
         if self._stop_at_s is not None and seconds >= self._stop_at_s:
             self._stop_at_s = None
             if self.player is not None:
@@ -1193,6 +1232,7 @@ class MainWindow(QMainWindow):
     def _on_follow_toggled(self, follow: bool) -> None:
         self.settings.follow = bool(follow)
         self.transcript_view.set_follow(bool(follow))
+        self.job_card.set_follow(bool(follow))
         self.player_bar.set_follow(bool(follow))
 
     def _on_rate_changed(self, rate: float) -> None:

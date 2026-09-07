@@ -57,7 +57,9 @@ One window, in the manner of a media player: drop recordings or folders in, each
 once, and the ones that have been transcribed show their transcript following the audio, the
 review marks on the timeline and between the lines, and a button that opens the verification
 screen. Choose a quality level, press Transcribe, and the pipeline runs over everything not
-yet done with progress per file. Nothing in the package reaches the network.
+yet done with progress per file. While a recording is being transcribed its lines appear as
+they are decoded; they can be read without being pulled to the newest line, clicked to move
+the playhead, and played from. Nothing in the package reaches the network.
 
 ```
 python -m twinscribe app [recordings or folders]

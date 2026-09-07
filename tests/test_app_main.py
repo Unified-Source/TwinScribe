@@ -326,6 +326,29 @@ def test_job_card_shows_progress_and_provisional_lines(app: QApplication, tmp_pa
     window._on_partial(0, Segment(start=3.0, end=4.0, text="   ", words=()))
     assert window.job_card.partial_count() == 1
 
+    # A clicked provisional line moves the playhead; the playhead highlights the line under it.
+    # The recording was loaded into the player a moment ago and may still be loading; the
+    # backend answers a seek during loading with position zero, so the window holds the seek
+    # and applies it once the media has loaded.
+    from PySide6.QtMultimedia import QMediaPlayer
+
+    window.job_card.seek_requested.emit(1.0)
+    assert window.player_bar.timeline.playhead() == pytest.approx(1.0)
+    assert window.job_card.current_line() == 0
+    wait_until(app, lambda: window.player is None or window.player.mediaStatus() != QMediaPlayer.MediaStatus.LoadingMedia, 10.0)
+    for _ in range(10):
+        app.processEvents()
+    assert window.player_bar.timeline.playhead() == pytest.approx(1.0)
+    if window.player is not None and window.player.mediaStatus() == QMediaPlayer.MediaStatus.LoadedMedia:
+        assert window.player.position() == 1000
+    window.seek(0.2)
+    assert window.job_card.current_line() is None
+    window.play_from(1.0)                                  # a double-clicked line: seek, then play
+    assert window.player_bar.timeline.playhead() == pytest.approx(1.0)
+    assert window.job_card.current_line() == 0
+    if window.player is not None:
+        window.player.pause()
+
     # Selecting another recording and coming back keeps the provisional lines.
     window.add_paths([media["done"]])
     window.library_view.setCurrentIndex(window.library_model.index(1, 0))

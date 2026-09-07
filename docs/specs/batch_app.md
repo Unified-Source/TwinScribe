@@ -122,7 +122,11 @@ transcript recording that its word times are approximate.
      the pace so far, a heartbeat that keeps moving between engine reports with the time since
      the last report, the acceleration plan in use, its place in the batch, and the lines the
      published engine has produced so far (provisional, without speaker labels; the detector's
-     text never appears); the player bar with the timeline (waveform overview, review marks,
+     text never appears), which can be read while they are written: the list follows the
+     newest line only while the reader is at the bottom, holds still when the reader scrolls
+     up or clicks a line, offers a way back to the latest line naming how many lines arrived
+     meanwhile, seeks on a click, plays from a double-click and highlights the line under the
+     playhead; the player bar with the timeline (waveform overview, review marks,
      playhead), back and forward five seconds, play or pause, the time readout, follow, speed
      and volume.
 3. Status bar: the last message on the left, the batch state on the right.
@@ -153,6 +157,14 @@ transcript recording that its word times are approximate.
   decoding, and hand each segment to the card as it is produced; the command line shows one
   status line updating in place on a terminal (stage, percentage, elapsed, time left), and
   prints on stage changes and every ten per cent elsewhere.
+- The provisional lines are readable while the engine writes them. The list follows the
+  newest line only while the reader is at the bottom; scrolling up or clicking a line holds
+  the view where it is, a button offers the way back to the latest line and names how many
+  lines arrived unseen, and scrolling back to the bottom follows again. Clicking a line moves
+  the playhead to its start, double-clicking plays from it, and the line under the playhead is
+  highlighted and, while the view is held and following is on, kept in view. The recording is
+  loaded in the player as soon as it is selected, so a passage can be checked against the
+  audio before the transcript is finished.
 - Review opens the verification screen of `verify_app.md` on the recording's review set and
   reloads the pane when it closes. Show outputs opens the folder that holds the outputs.
 - Settings: models folder (with a report of what it holds), outputs beside each recording or
