@@ -1,0 +1,77 @@
+"""Tests for the quality levels and their dependence on the model store."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from tests._fixtures import make_models
+from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
+from twinscribe.models import (
+    KEY_EMBEDDING,
+    KEY_PARAKEET_V2,
+    KEY_SEGMENTATION,
+    KEY_SILERO_VAD,
+    KEY_WHISPER_DISTIL,
+    KEY_WHISPER_LARGE,
+    KEY_WHISPER_TURBO,
+    find_models,
+)
+from twinscribe.profiles import (
+    DEFAULT_PROFILE,
+    PROFILES,
+    ModelsMissing,
+    available_profiles,
+    choose_profile,
+    missing_models,
+    profile_for,
+)
+
+
+def test_profiles_are_the_three_levels() -> None:
+    assert [p.name for p in PROFILES] == ["quick", "standard", "careful"]
+    assert DEFAULT_PROFILE == "standard"
+    standard = profile_for("standard")
+    assert standard.publisher == KEY_PARAKEET_V2 and standard.detector == KEY_WHISPER_TURBO
+    assert standard.detector_preset == "production" and standard.publisher_preset == "vad"
+    assert profile_for("quick").detector == KEY_WHISPER_DISTIL and profile_for("quick").detector_preset == "quick"
+    assert profile_for("careful").detector == KEY_WHISPER_LARGE
+    for profile in PROFILES:
+        assert set(profile.model_keys) >= {KEY_SILERO_VAD, KEY_SEGMENTATION, KEY_EMBEDDING}
+        assert profile.review.min_silence_s == 0.8 and profile.review.min_detector_words == 2 and profile.review.pad_s == 0.4
+
+
+def test_profile_presets_exist_and_detector_keeps_word_times() -> None:
+    for profile in PROFILES:
+        assert profile.publisher_preset in PARAKEET_PRESETS
+        detector = WHISPER_PRESETS[profile.detector_preset]
+        assert detector["word_timestamps"] is True, profile.name
+
+
+def test_unknown_profile_lists_names() -> None:
+    with pytest.raises(KeyError) as excinfo:
+        profile_for("ultra")
+    assert "standard" in str(excinfo.value)
+
+
+def test_availability_follows_the_store(tmp_path: Path) -> None:
+    empty = find_models(tmp_path / "empty")
+    assert available_profiles(empty) == []
+    assert set(missing_models(profile_for("standard"), empty)) == set(profile_for("standard").model_keys)
+
+    full = make_models(tmp_path / "full")
+    assert [p.name for p in available_profiles(full)] == ["quick", "standard", "careful"]
+    assert choose_profile("careful", full).name == "careful"
+
+    partial_root = tmp_path / "partial"
+    partial = make_models(partial_root)
+    for key in (KEY_WHISPER_DISTIL, KEY_WHISPER_LARGE):
+        for child in (partial_root / key).iterdir():
+            child.unlink()
+        (partial_root / key).rmdir()
+    partial = find_models(partial_root)
+    assert [p.name for p in available_profiles(partial)] == ["standard"]
+    with pytest.raises(ModelsMissing) as excinfo:
+        choose_profile("quick", partial)
+    assert str(partial_root / KEY_WHISPER_DISTIL) in str(excinfo.value)
