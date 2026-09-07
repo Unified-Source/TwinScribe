@@ -349,6 +349,20 @@ def test_worker_batch_shows_the_card_then_the_transcript(app: QApplication, tmp_
     dispose(app, window)
 
 
+def test_pressing_the_transcribe_button_starts_a_batch(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path, engines=make_engines())
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window.transcribe_button.isEnabled()
+    window.transcribe_button.click()          # the clicked signal carries a boolean; it must not reach the rows argument
+    app.processEvents()
+    assert window.worker is not None
+    wait_until(app, lambda: window.worker is None)
+    assert window.library_model.item(0).status == STATUS_DONE
+    assert window.start_transcription(False) is False and "Nothing to transcribe" in window.statusBar().currentMessage()
+    dispose(app, window)
+
+
 def test_batch_failure_is_shown(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
     window = make_window(app, tmp_path, engines=make_engines(fail_publisher=True))
     window.add_paths([media["fresh"]])
