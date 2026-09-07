@@ -58,16 +58,43 @@ from twinscribe import __version__
 from twinscribe.app.icons import make_icon
 from twinscribe.app.library import STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
 from twinscribe.app.player import PlayerBar
-from twinscribe.app.settings import OUTPUT_BESIDE, OUTPUT_FOLDER, AppSettings, load_settings, save_settings
+from twinscribe.app.settings import (
+    ACCELERATIONS,
+    OUTPUT_BESIDE,
+    OUTPUT_FOLDER,
+    AppSettings,
+    load_settings,
+    save_settings,
+)
 from twinscribe.app.theme import Theme, apply_styles, apply_theme, theme_for
 from twinscribe.app.transcript_view import TranscriptView
 from twinscribe.app.worker import PipelineWorker
+from twinscribe.hardware import (
+    BACKEND_CT2,
+    BACKEND_NONE,
+    BACKEND_ONNX,
+    Plan,
+    current_plan,
+    describe_machine,
+    probe_libraries,
+    probe_machine,
+    probe_nvidia_gpus,
+)
 from twinscribe.models import ModelSet, find_models
 from twinscribe.outputs import render_all
-from twinscribe.outputs.transcript_doc import clock, load_document, set_speaker_name, speaker_names, write_document
+from twinscribe.outputs.transcript_doc import (
+    approximate_word_times,
+    clock,
+    load_document,
+    set_speaker_name,
+    speaker_names,
+    write_document,
+)
 from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, output_paths
-from twinscribe.profiles import PROFILES, Profile, available_profiles, profile_for
+from twinscribe.profiles import ModelsMissing, Profile, available_profiles, profile_for, select as select_level
 from twinscribe.runrecord import write_json_atomic
+
+ACCELERATION_TITLES: dict[str, str] = {"auto": "Automatic", "cpu": "Processor only", "cuda": "CUDA device"}
 
 APP_TITLE = "twinscribe"
 SHOT_DELAY_MS = 1200
@@ -177,6 +204,18 @@ class SettingsDialog(QDialog):
         self.threads_spin.setValue(settings.threads)
         form.addRow("Threads per engine", self.threads_spin)
 
+        self.acceleration_box = QComboBox(self)
+        for key in ACCELERATIONS:
+            self.acceleration_box.addItem(ACCELERATION_TITLES[key], key)
+        self.acceleration_box.setCurrentIndex(max(0, self.acceleration_box.findData(settings.acceleration)))
+        self.acceleration_box.currentIndexChanged.connect(self._refresh_plan)
+        form.addRow("Acceleration", self.acceleration_box)
+
+        self.plan_report = QPlainTextEdit(self)
+        self.plan_report.setReadOnly(True)
+        self.plan_report.setMaximumHeight(150)
+        form.addRow("", self.plan_report)
+
         self.theme_box = QComboBox(self)
         self.theme_box.addItems(["Light", "Dark"])
         self.theme_box.setCurrentIndex(1 if settings.dark else 0)
@@ -187,6 +226,17 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
         self._refresh_report()
+        self._refresh_plan()
+
+    def _refresh_plan(self) -> None:
+        preference = str(self.acceleration_box.currentData() or "auto")
+        threads = int(self.threads_spin.value()) or None
+        try:
+            lines = describe_machine(probe_machine(), probe_nvidia_gpus(), probe_libraries())
+            lines += current_plan(preference, threads).describe()
+        except Exception as exc:  # noqa: BLE001 - the dialog must open whatever the probe does
+            lines = [f"The machine could not be probed: {exc}"]
+        self.plan_report.setPlainText("\n".join(lines))
 
     def _browse_models(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Models folder", self.models_edit.text() or str(Path.home()))
@@ -214,6 +264,7 @@ class SettingsDialog(QDialog):
         settings.output_dir = self.output_edit.text().strip()
         settings.author = self.author_edit.text().strip()
         settings.threads = int(self.threads_spin.value())
+        settings.acceleration = str(self.acceleration_box.currentData() or "auto")
         settings.dark = self.theme_box.currentIndex() == 1
         return settings
 
@@ -222,7 +273,8 @@ class MainWindow(QMainWindow):
     """The one window.
 
     `engines` lets a test stand synthetic engines in for the real ones; `record_dir` is where
-    batch records go (the application home by default).
+    batch records go (the application home by default); `plan` and `backends` replace the
+    machine probe (tests), otherwise the machine is probed.
     """
 
     def __init__(
@@ -232,12 +284,22 @@ class MainWindow(QMainWindow):
         engines: Engines | None = None,
         record_dir: Path | None = None,
         parent: QWidget | None = None,
+        plan: Plan | None = None,
+        backends: dict[str, bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.settings = settings
         self.theme = theme if theme is not None else theme_for(settings.dark)
         self._engines = engines
         self._record_dir = record_dir
+        self._plan_override = plan
+        if backends is not None:
+            self._backends = dict(backends)
+        elif plan is not None:
+            self._backends = dict(plan.backends)
+        else:
+            libraries = probe_libraries()
+            self._backends = {BACKEND_CT2: libraries.whisper_ct2, BACKEND_ONNX: libraries.sherpa_onnx}
         self.models: ModelSet = find_models(settings.models_dir or None)
         self.worker: PipelineWorker | None = None
         self._current_row: int | None = None
@@ -642,6 +704,8 @@ class MainWindow(QMainWindow):
             parts.append(f"{marks} span{'s' if marks != 1 else ''} to review, {share:.0f}% of the audio" if marks else "nothing to review")
             if doc.get("speaker_failure"):
                 parts.append("speaker labelling did not complete")
+            if approximate_word_times((doc.get("engines") or {}).get("detector")):
+                parts.append("detector word times approximate")
         elif item.status == STATUS_RUNNING:
             parts.append(item.message or "Working")
         elif item.error:
@@ -766,7 +830,7 @@ class MainWindow(QMainWindow):
     def _refresh_quality_box(self) -> None:
         self.quality_box.blockSignals(True)
         self.quality_box.clear()
-        levels = available_profiles(self.models)
+        levels = available_profiles(self.models, self._backends)
         if levels:
             for profile in levels:
                 self.quality_box.addItem(profile.title, profile.name)
@@ -778,7 +842,13 @@ class MainWindow(QMainWindow):
         else:
             self.quality_box.addItem("No models", None)
             self.quality_box.setEnabled(False)
-            self.quality_box.setToolTip(f"No complete model set under {self.models.root}. Open Settings to choose the folder.")
+            if not any(self._backends.values()):
+                self.quality_box.setToolTip("No detector library is installed; install the engines extra.")
+            else:
+                self.quality_box.setToolTip(
+                    f"No complete model set under {self.models.root} for the installed libraries. "
+                    "Open Settings to choose the folder."
+                )
         self.quality_box.blockSignals(False)
         self._refresh_transcribe_button()
 
@@ -821,16 +891,24 @@ class MainWindow(QMainWindow):
                 f"No complete model set was found under\n{self.models.root}\n\nOpen Settings to choose the models folder.",
             )
             return False
-        if self._engines is None:
-            missing = [name for name in ("faster_whisper", "sherpa_onnx") if not _module_present(name)]
-            if missing:
-                QMessageBox.information(
-                    self,
-                    "Engine libraries not installed",
-                    "The engine libraries are not installed in this environment: " + ", ".join(missing)
-                    + ".\n\nInstall the 'engines' extra of this package, then try again. Playback still works.",
-                )
-                return False
+        plan = self._plan_override
+        if plan is None:
+            plan = current_plan(self.settings.acceleration, self.settings.threads_or_none)
+        if plan.detector_backend == BACKEND_NONE and self._engines is None:
+            QMessageBox.information(
+                self,
+                "Engine libraries not installed",
+                "No detector library is installed in this environment.\n\n"
+                "Install the 'engines' extra of this package (faster-whisper with CTranslate2 where it has a wheel, "
+                "sherpa-onnx everywhere), then try again. Playback still works.",
+            )
+            return False
+        try:
+            selection = select_level(profile.name, self.models, self._backends)
+        except ModelsMissing as exc:
+            QMessageBox.information(self, "Models missing", str(exc))
+            return False
+        placement = plan.placement_for(selection.backend)
         chosen = list(rows) if rows is not None else self.library_model.pending_rows()
         if not chosen:
             self.set_status("Nothing to transcribe.")
@@ -848,6 +926,7 @@ class MainWindow(QMainWindow):
             engines=self._engines,
             record_dir=self._record_dir,
             parent=self,
+            plan=plan,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.file_done.connect(self._on_file_done)
@@ -859,7 +938,13 @@ class MainWindow(QMainWindow):
         self.transcribe_button.setEnabled(False)
         self.quality_box.setEnabled(False)
         self.batch_label.setText(f"0 of {self._batch_total}")
-        self.set_status(f"Transcribing {self._batch_total} recording" + ("" if self._batch_total == 1 else "s") + f" at the {profile.title} level.")
+        where = placement.describe() if placement is not None else "processor"
+        backend = "CTranslate2" if selection.backend == BACKEND_CT2 else "ONNX"
+        self.set_status(
+            f"Transcribing {self._batch_total} recording" + ("" if self._batch_total == 1 else "s")
+            + f" at the {profile.title} level; detector {backend} on {where}; publisher on "
+            f"{plan.publisher.describe()}."
+        )
         self.worker.start()
         return True
 

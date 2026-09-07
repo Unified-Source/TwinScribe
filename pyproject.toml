@@ -24,9 +24,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# faster-whisper needs CTranslate2, which publishes no wheel for Windows on ARM; sherpa-onnx
+# covers every platform and carries the ONNX detector used there.
 engines = [
-  "faster-whisper>=1.2,<2",
+  "faster-whisper>=1.2,<2; sys_platform != 'win32' or platform_machine != 'ARM64'",
   "sherpa-onnx>=1.13,<2",
+]
+cuda = [
+  "nvidia-cublas-cu12",
+  "nvidia-cudnn-cu12",
+]
+ffmpeg = [
+  "imageio-ffmpeg>=0.5",
 ]
 app = [
   "PySide6>=6.8",

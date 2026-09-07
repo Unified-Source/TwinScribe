@@ -22,7 +22,7 @@ from PySide6.QtGui import QDropEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from tests._fixtures import make_document, make_engines, make_models  # noqa: E402
+from tests._fixtures import make_document, make_engines, make_models, make_plan_for  # noqa: E402
 from twinscribe import audio  # noqa: E402
 from twinscribe.app import main as app_main  # noqa: E402
 from twinscribe.app.library import STATUS_DONE, STATUS_NEW, read_document_facts  # noqa: E402
@@ -70,11 +70,14 @@ def media(tmp_path: Path) -> dict[str, Path]:
     return {"folder": folder, "done": done, "fresh": fresh}
 
 
-def make_window(app: QApplication, tmp_path: Path, engines=None, **settings_overrides) -> app_main.MainWindow:
+def make_window(app: QApplication, tmp_path: Path, engines=None, plan=None, **settings_overrides) -> app_main.MainWindow:
     models_root = tmp_path / "models"
     make_models(models_root)
     settings = AppSettings(models_dir=str(models_root), **settings_overrides)
-    window = app_main.MainWindow(settings, theme_for(False), engines=engines, record_dir=tmp_path / "runs")
+    window = app_main.MainWindow(
+        settings, theme_for(False), engines=engines, record_dir=tmp_path / "runs",
+        plan=plan if plan is not None else make_plan_for(),
+    )
     window.resize(1100, 700)
     window.show()
     app.processEvents()
@@ -100,13 +103,14 @@ def wait_until(app: QApplication, condition, timeout_s: float = 30.0) -> None:
 
 
 def test_settings_round_trip_and_tolerance(tmp_path: Path) -> None:
-    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"])
+    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"], acceleration="cpu")
     path = save_settings(settings, tmp_path / "s.json")
     loaded = load_settings(path)
     assert loaded == settings
-    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no"}), encoding="utf-8")
+    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no", "acceleration": "npu"}), encoding="utf-8")
     tolerant = load_settings(path)
     assert tolerant.threads == 0 and tolerant.volume == 1.0 and tolerant.output_mode == "beside" and tolerant.library == []
+    assert tolerant.acceleration == "auto"
     assert load_settings(tmp_path / "absent.json") == AppSettings()
     assert AppSettings(output_mode="folder", output_dir="x").output_dir_or_none == Path("x")
     assert AppSettings(output_mode="folder").output_dir_or_none is None
@@ -313,13 +317,35 @@ def test_batch_failure_is_shown(app: QApplication, tmp_path: Path, home: Path, m
 
 def test_no_models_disables_transcription(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
     settings = AppSettings(models_dir=str(tmp_path / "nowhere"))
-    window = app_main.MainWindow(settings, theme_for(False), record_dir=tmp_path / "runs")
+    window = app_main.MainWindow(settings, theme_for(False), record_dir=tmp_path / "runs", plan=make_plan_for())
     window.show()
     app.processEvents()
     window.add_paths([media["fresh"]])
     assert window.quality_box.count() == 1 and not window.quality_box.isEnabled()
     assert window.selected_profile() is None
     assert not window.transcribe_button.isEnabled()
+    dispose(app, window)
+
+
+def test_levels_follow_the_usable_backends(app: QApplication, tmp_path: Path, home: Path) -> None:
+    none = make_window(app, tmp_path, plan=make_plan_for(ct2=False, sherpa=False))
+    assert none.quality_box.count() == 1 and "No detector library" in none.quality_box.toolTip()
+    dispose(app, none)
+    onnx = make_window(app, tmp_path, plan=make_plan_for(ct2=False))
+    assert onnx.quality_box.count() == 3
+    dispose(app, onnx)
+
+
+def test_batch_reports_the_placement(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path, engines=make_engines(), plan=make_plan_for(cuda=True))
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window.start_transcription() is True
+    assert "detector CTranslate2 on cuda:0, float16" in window.statusBar().currentMessage()
+    wait_until(app, lambda: window.worker is None)
+    assert window.library_model.item(0).status == STATUS_DONE
+    record = json.loads(output_paths(media["fresh"]).run.read_text(encoding="utf-8"))
+    assert record["settings"]["plan"]["detector"]["device"] == "cuda" and record["settings"]["parallel_engines"] is True
     dispose(app, window)
 
 

@@ -98,6 +98,37 @@ standard-profile models were fetched into `models/` beside the package with
   overwrote each other's outputs (the naming rule above); and greedy cue splitting left a
   one-word trailing cue on lines just over the limit (the balanced splitting above).
 
+## Review for other machines, and the acceleration plan
+
+A pass over the delivered code for machines other than the one it was built on found and
+fixed: child processes (ffmpeg) opening a console window when the window is started without
+one on Windows; the application home ignoring the conventions of macOS and of the XDG data
+folder; media discovery lowering case on file systems that distinguish it; no processor,
+memory, load or power probes on macOS; no font fallbacks beyond the one platform; ffmpeg
+looked for on the search path only. Each is in `hardware.py`, `audio.py`, `paths.py`,
+`pipeline.py`, `runrecord.py`, `load.py` or the theme; the macOS probes are written from the
+documented interfaces and not run.
+
+The plan (`hardware.py`) and the second detector (`engines/whisper_onnx.py`) are described
+in `batch_app.md` section 5a and in `docs/Platforms.md`. Measured on this machine, natively,
+with the ONNX turbo export on the synthesised conversation:
+
+- decoding on the voice detector's utterances, as the transducer does, made the two engines
+  fail in the same places and the review list found nothing (zero marks);
+- decoding in thirty-second windows cut at quiet moments gave a transcript as good as the
+  CTranslate2 conversion's (normalised WER 1.8 against 1.5 per hundred words, no deletion),
+  but spreading words over whole segment spans put words into pauses: 34 marks, 43 per cent
+  of the audio, almost all false;
+- confining the spread words to the voiced parts of each span gave 3 marks, all three on real
+  dropped phrases and no false alarm, against the 5 of the CTranslate2 detector; the two
+  missed were two-word gaps, the cost of approximate word times.
+
+The published exports carry no cross-attention outputs; an export made with the library's
+attention-keeping script would give token timestamps, which the detector uses when present.
+Not run here: a CUDA device (none on this machine), the CUDA build of sherpa-onnx, the CUDA
+runtime packages, the parallel-engine path with real engines (exercised with synthetic engines
+in the tests), Linux and macOS.
+
 ## Not exercised here
 
 - The quick and careful levels: their detectors are not fetched on this machine.

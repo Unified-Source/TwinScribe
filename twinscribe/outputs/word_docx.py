@@ -20,8 +20,8 @@ from xml.sax.saxutils import escape
 
 from twinscribe import __version__
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.plain_text import DRAFT_NOTICE
-from twinscribe.outputs.transcript_doc import clock, speaker_names
+from twinscribe.outputs.plain_text import APPROXIMATE_NOTE, DRAFT_NOTICE
+from twinscribe.outputs.transcript_doc import approximate_word_times, clock, speaker_names
 
 APPLICATION_NAME = "twinscribe"
 MUTED = "7F7F7F"
@@ -214,7 +214,10 @@ def document_body(doc: Mapping[str, Any]) -> str:
         ),
         _paragraph(_run(f"Published engine: {_engine_text(engines.get('publisher'))}"), "Meta"),
         _paragraph(
-            _run(f"Checked against: {_engine_text(engines.get('detector'))}; its text is never published"),
+            _run(
+                f"Checked against: {_engine_text(engines.get('detector'))}; its text is never published"
+                + (f"; {APPROXIMATE_NOTE}" if approximate_word_times(engines.get("detector")) else "")
+            ),
             "Meta",
         ),
     ]

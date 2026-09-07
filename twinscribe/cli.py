@@ -13,11 +13,21 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from twinscribe import __version__
+from twinscribe.hardware import (
+    BACKEND_CT2,
+    BACKEND_ONNX,
+    PREFERENCES,
+    current_plan,
+    describe_machine,
+    probe_libraries,
+    probe_machine,
+    probe_nvidia_gpus,
+)
 from twinscribe.models import STATUS_VERIFIED, find_models, verify_store
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import load_document
 from twinscribe.pipeline import Progress, discover_media, output_paths, run_batch
-from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, available_profiles, choose_profile
+from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, available_profiles, select
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,13 +48,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", type=Path, default=None, help="output folder (default: beside each recording)")
     run.add_argument("--quality", default=DEFAULT_PROFILE, choices=[p.name for p in PROFILES], help="quality level")
     run.add_argument("--threads", type=int, default=None, help="threads per engine (default: min of 8 and the cores)")
+    run.add_argument("--device", default="auto", choices=list(PREFERENCES),
+                     help="auto uses a CUDA device when one is usable; cpu keeps every engine on the processor")
     run.add_argument("--author", default="", help="author written into the Word document properties")
     run.add_argument("--keep-audio", action="store_true", help="keep the decoded 16 kHz work file")
     run.add_argument("--no-recurse", action="store_true", help="do not descend into sub-folders")
 
-    check = commands.add_parser("check", help="report ffmpeg, engine libraries, models and quality levels")
+    check = commands.add_parser("check", help="report the machine, ffmpeg, engine libraries, models, levels and the plan")
     check.add_argument("--models", type=Path, default=None, help="models root folder")
     check.add_argument("--verify", action="store_true", help="digest every model file against the lock")
+    check.add_argument("--device", default="auto", choices=list(PREFERENCES), help="the preference the plan is made for")
 
     export = commands.add_parser("export", help="render text, Word and subtitles again from transcript documents")
     export.add_argument("documents", nargs="+", type=Path, help="*.transcript.json files")
@@ -74,11 +87,19 @@ def command_check(args: argparse.Namespace) -> int:
     models = find_models(args.models)
     print(f"models root:     {models.root}")
     print(models.describe())
-    levels = available_profiles(models)
+    libraries = probe_libraries()
+    backends = {BACKEND_CT2: libraries.whisper_ct2, BACKEND_ONNX: libraries.sherpa_onnx}
+    levels = available_profiles(models, backends)
     if levels:
         print("quality levels:  " + ", ".join(p.name for p in levels))
     else:
-        print("quality levels:  none; no level has all of its models present")
+        print("quality levels:  none; no level has all of its models present for the installed libraries")
+    print()
+    for line in describe_machine(probe_machine(), probe_nvidia_gpus(), libraries):
+        print(line)
+    print("plan (" + args.device + "):")
+    for line in current_plan(args.device).describe():
+        print("  " + line)
     status = 0
     if args.verify:
         checks = verify_store(models.root)
@@ -96,11 +117,16 @@ def command_run(args: argparse.Namespace) -> int:
         print("no recordings found under the given paths", file=sys.stderr)
         return 2
     models = find_models(args.models)
+    plan = current_plan(args.device, args.threads)
     try:
-        profile = choose_profile(args.quality, models)
+        selection = select(args.quality, models, plan.backends)
     except ModelsMissing as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    profile = selection.profile
+    for line in plan.describe():
+        print(line)
+    print(f"detector model: {selection.detector} ({selection.backend})")
     last_line = {"text": ""}
 
     def report(index: int, total: int, p: Progress) -> None:
@@ -118,6 +144,8 @@ def command_run(args: argparse.Namespace) -> int:
         author=args.author,
         keep_audio=args.keep_audio,
         progress=report,
+        plan=plan,
+        preference=args.device,
     )
     for outcome in result.outcomes:
         if outcome.ok and outcome.result is not None:

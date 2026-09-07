@@ -86,6 +86,24 @@ a cancel check stops within one engine progress step. A batch runs recordings on
 another and never stops for a failure. `discover_media(paths)` lists the audio and video files
 under files and folders, recursively.
 
+## 5a. The machine and the plan
+
+`twinscribe/hardware.py` probes the machine (operating system, architecture, cores, memory,
+NVIDIA devices, which engine libraries import) and chooses a plan: the detector backend
+(CTranslate2 where it imports, else Whisper through sherpa-onnx), the device and compute type
+or provider of each engine, the thread count, and whether the two transcription engines run
+at the same time (only when they sit on different devices). A preference of auto, cpu or cuda
+constrains it. The plan is chosen once per batch, recorded in every run record, printed by
+`twinscribe check` and shown in the settings. Each level lists its detector candidates in
+order of preference (the CTranslate2 conversion, then the ONNX export), and a level is offered
+when its models are present and one candidate can run with the libraries installed.
+
+`twinscribe/engines/whisper_onnx.py` is the second detector: windows of at most thirty
+seconds cut at the quietest moment before each limit (never the voice detector's utterances,
+which the transducer decodes), token timestamps when the export carries attention outputs,
+otherwise words spread inside each segment's span and confined to its voiced parts, with the
+transcript recording that its word times are approximate.
+
 ## 6. The window, top to bottom
 
 1. Top bar: the name, Open files, Open folder, the quality level, Transcribe (primary), Stop
@@ -124,8 +142,9 @@ under files and folders, recursively.
 - Review opens the verification screen of `verify_app.md` on the recording's review set and
   reloads the pane when it closes. Show outputs opens the folder that holds the outputs.
 - Settings: models folder (with a report of what it holds), outputs beside each recording or
-  in one folder, author, threads, light or dark. Settings, volume, speed, follow, the library
-  and the window size persist in one JSON file under the application home, never the registry.
+  in one folder, author, threads, acceleration (automatic, processor only, CUDA device) with
+  the plan the choice yields, light or dark. Settings, volume, speed, follow, the library and
+  the window size persist in one JSON file under the application home, never the registry.
 
 ## 8. Theme
 

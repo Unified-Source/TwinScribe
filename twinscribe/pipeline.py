@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,12 +20,15 @@ from typing import Any
 from twinscribe import __version__, audio, load
 from twinscribe.engines.base import Diarization, Transcript
 from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
+from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRESET
+from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
+from twinscribe.hardware import BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
 from twinscribe.labelling import build_lines, label_words
-from twinscribe.models import KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet
+from twinscribe.models import KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import build_document, overview_peaks, write_document
 from twinscribe.paths import runs_dir, work_dir
-from twinscribe.profiles import Profile
+from twinscribe.profiles import Profile, select as select_level
 from twinscribe.review import build_review, review_set, write_review_set
 from twinscribe.runrecord import Failure, RunRecord, utc_now, write_json_atomic
 
@@ -173,7 +177,12 @@ def discover_media(paths: Iterable[str | os.PathLike[str]], recursive: bool = Tr
 
 @dataclass(frozen=True)
 class Job:
-    """One recording to process, with everything the pipeline needs to know."""
+    """One recording to process, with everything the pipeline needs to know.
+
+    plan is the acceleration plan (probed from the machine when None); detector names the
+    detector model to run (resolved from the profile and the plan when None); preference is
+    auto, cpu or cuda and matters only when the plan is probed here.
+    """
 
     source: Path
     profile: Profile
@@ -183,22 +192,34 @@ class Job:
     author: str = ""
     keep_audio: bool = False
     work_folder: Path | None = None
+    plan: Plan | None = None
+    detector: str | None = None
+    preference: str = DEVICE_AUTO
 
 
 @dataclass(frozen=True)
 class Engines:
-    """The three engine calls, so that tests can stand synthetic engines in for the real ones."""
+    """The engine calls, so that tests can stand synthetic engines in for the real ones.
+
+    detector is the CTranslate2 detector, detector_onnx the sherpa-onnx one.
+    """
 
     publisher: Callable[..., Transcript]
     detector: Callable[..., Transcript]
     diarizer: Callable[..., Diarization] | None
+    detector_onnx: Callable[..., Transcript] | None = None
 
 
 def default_engines() -> Engines:
     """The real engine wrappers; their libraries import lazily when first called."""
-    from twinscribe.engines import diarize, parakeet, whisper_ct2
+    from twinscribe.engines import diarize, parakeet, whisper_ct2, whisper_onnx
 
-    return Engines(publisher=parakeet.transcribe, detector=whisper_ct2.transcribe, diarizer=diarize.diarize)
+    return Engines(
+        publisher=parakeet.transcribe,
+        detector=whisper_ct2.transcribe,
+        diarizer=diarize.diarize,
+        detector_onnx=whisper_onnx.transcribe,
+    )
 
 
 @dataclass(frozen=True)
@@ -221,16 +242,26 @@ class FileResult:
 
 
 class _Reporter:
-    """Turns per-stage fractions into overall progress and checks for cancellation."""
+    """Turns per-stage fractions into overall progress and checks for cancellation.
+
+    In parallel mode the publisher and detector stages, which are adjacent, are reported as
+    one combined stretch so that the overall fraction never runs backwards while the two
+    engines report in turn.
+    """
 
     def __init__(self, progress: ProgressFn | None, cancel: CancelFn | None) -> None:
         self._progress = progress
         self._cancel = cancel
         self._offsets: dict[str, tuple[float, float]] = {}
+        self._parallel = False
+        self._fractions: dict[str, float] = {"publisher": 0.0, "detector": 0.0}
         start = 0.0
         for name, weight in STAGES:
             self._offsets[name] = (start, weight)
             start += weight
+
+    def set_parallel(self, parallel: bool) -> None:
+        self._parallel = bool(parallel)
 
     def check(self) -> None:
         if self._cancel is not None and self._cancel():
@@ -238,10 +269,20 @@ class _Reporter:
 
     def report(self, stage: str, fraction: float, message: str | None = None) -> None:
         self.check()
-        offset, weight = self._offsets[stage]
-        overall = min(1.0, max(0.0, offset + weight * min(1.0, max(0.0, fraction))))
+        clamped = min(1.0, max(0.0, fraction))
+        if self._parallel and stage in self._fractions:
+            self._fractions[stage] = clamped
+            publisher_offset, publisher_weight = self._offsets["publisher"]
+            _, detector_weight = self._offsets["detector"]
+            combined = publisher_weight * self._fractions["publisher"] + detector_weight * self._fractions["detector"]
+            overall = min(1.0, max(0.0, publisher_offset + combined))
+            text = message or "Transcribing and checking at the same time"
+        else:
+            offset, weight = self._offsets[stage]
+            overall = min(1.0, max(0.0, offset + weight * clamped))
+            text = message or STAGE_TITLES[stage]
         if self._progress is not None:
-            self._progress(Progress(stage=stage, fraction=overall, message=message or STAGE_TITLES[stage]))
+            self._progress(Progress(stage=stage, fraction=overall, message=text))
 
     def stage_fn(self, stage: str) -> Callable[[float], None]:
         def inner(fraction: float) -> None:
@@ -268,11 +309,15 @@ def _decode_source(job: Job, reporter: _Reporter, digest: str) -> tuple[Path, bo
     return target, True
 
 
-def _preset_settings(profile: Profile) -> dict[str, Any]:
+def _preset_settings(profile: Profile, backend: str | None = None) -> dict[str, Any]:
+    if backend == BACKEND_ONNX:
+        detector_preset = {ONNX_DETECTOR_PRESET: WHISPER_ONNX_PRESETS.get(ONNX_DETECTOR_PRESET)}
+    else:
+        detector_preset = {profile.detector_preset: WHISPER_PRESETS.get(profile.detector_preset)}
     return {
         "profile": profile.name,
         "publisher_preset": {profile.publisher_preset: PARAKEET_PRESETS.get(profile.publisher_preset)},
-        "detector_preset": {profile.detector_preset: WHISPER_PRESETS.get(profile.detector_preset)},
+        "detector_preset": detector_preset,
         "review": {
             "min_silence_s": profile.review.min_silence_s,
             "min_detector_words": profile.review.min_detector_words,
@@ -316,27 +361,72 @@ def process_file(
         models = job.models
         profile = job.profile
 
-        before = load.snapshot()
-        reporter.report("publisher", 0.0)
-        published = engine_set.publisher(
-            wav,
-            models.path(profile.publisher),
-            models.file(KEY_SILERO_VAD, "silero_vad.onnx"),
-            profile.publisher_preset,
-            threads=job.threads,
-            progress=reporter.stage_fn("publisher"),
-        )
-        reporter.report("publisher", 1.0)
+        plan = job.plan if job.plan is not None else current_plan(job.preference, job.threads)
+        if job.detector is not None:
+            detector_key = job.detector
+            backend = spec_for(detector_key).backend
+        else:
+            selection = select_level(profile.name, models, plan.backends)
+            detector_key, backend = selection.detector, selection.backend
+        placement = plan.placement_for(backend)
+        if placement is None:
+            raise RuntimeError(f"no library for the {backend} detector backend is installed")
+        parallel = plan.parallel_for(backend)
+        vad_model = models.file(KEY_SILERO_VAD, "silero_vad.onnx")
 
-        reporter.report("detector", 0.0)
-        detector = engine_set.detector(
-            wav,
-            models.path(profile.detector),
-            profile.detector_preset,
-            threads=job.threads,
-            progress=reporter.stage_fn("detector"),
-        )
-        reporter.report("detector", 1.0)
+        def run_publisher() -> Transcript:
+            return engine_set.publisher(
+                wav,
+                models.path(profile.publisher),
+                vad_model,
+                profile.publisher_preset,
+                threads=job.threads,
+                progress=reporter.stage_fn("publisher"),
+                provider=plan.publisher.provider,
+            )
+
+        def run_detector() -> Transcript:
+            if backend == BACKEND_ONNX:
+                if engine_set.detector_onnx is None:
+                    raise RuntimeError("the ONNX detector is not available in this engine set")
+                return engine_set.detector_onnx(
+                    wav,
+                    models.path(detector_key),
+                    vad_model,
+                    ONNX_DETECTOR_PRESET,
+                    threads=job.threads,
+                    progress=reporter.stage_fn("detector"),
+                    provider=placement.provider,
+                )
+            return engine_set.detector(
+                wav,
+                models.path(detector_key),
+                profile.detector_preset,
+                threads=job.threads,
+                progress=reporter.stage_fn("detector"),
+                device=placement.device,
+                compute_type=placement.compute_type or "auto",
+                device_index=placement.index,
+            )
+
+        before = load.snapshot()
+        if parallel:
+            reporter.set_parallel(True)
+            reporter.report("publisher", 0.0)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                publisher_future = pool.submit(run_publisher)
+                detector_future = pool.submit(run_detector)
+                published = publisher_future.result()
+                detector = detector_future.result()
+            reporter.set_parallel(False)
+            reporter.report("detector", 1.0)
+        else:
+            reporter.report("publisher", 0.0)
+            published = run_publisher()
+            reporter.report("publisher", 1.0)
+            reporter.report("detector", 0.0)
+            detector = run_detector()
+            reporter.report("detector", 1.0)
 
         reporter.report("speakers", 0.0)
         diarization: Diarization | None = None
@@ -350,6 +440,7 @@ def process_file(
                     models.file(KEY_EMBEDDING, "nemo_en_titanet_large.onnx"),
                     threads=job.threads,
                     threshold=profile.diarization_threshold,
+                    provider=plan.diarizer.provider,
                 )
             except Cancelled:
                 raise
@@ -420,10 +511,20 @@ def process_file(
             + detector.transcribe_s
             + (diarization.diarize_s if diarization is not None else 0.0)
         )
+        run_settings = _preset_settings(profile, backend) | {
+            "threads": job.threads,
+            "plan": plan.to_dict(),
+            "detector_backend": backend,
+            "detector_model": detector_key,
+            "detector_word_timing": str(detector.settings.get("word_timing", "token")),
+            "publisher_engine_settings": dict(published.settings),
+            "detector_engine_settings": dict(detector.settings),
+            "parallel_engines": parallel,
+        }
         record = RunRecord(
             engines=engine_facts,
             versions=versions,
-            settings=_preset_settings(profile) | {"threads": job.threads},
+            settings=run_settings,
             input_path=str(source),
             input_sha256=digest,
             audio_s=audio_s,
@@ -541,17 +642,21 @@ def run_batch(
     engines: Engines | None = None,
     record_dir: str | os.PathLike[str] | None = None,
     on_outcome: OutcomeFn | None = None,
+    plan: Plan | None = None,
+    preference: str = DEVICE_AUTO,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
 
     A cancellation stops the batch; the recordings not reached are recorded as cancelled. The
     batch record lists every recording with its outputs or its error. on_outcome, when given,
-    is called with the index and the outcome as soon as each recording finishes.
+    is called with the index and the outcome as soon as each recording finishes. The
+    acceleration plan is probed once for the batch when not given.
     """
     started_utc = utc_now()
     result = BatchResult()
     total = len(sources)
     stopped = False
+    batch_plan = plan if plan is not None else current_plan(preference, threads)
 
     def record(outcome: Outcome, index: int) -> None:
         result.outcomes.append(outcome)
@@ -571,6 +676,8 @@ def run_batch(
             threads=threads,
             author=author,
             keep_audio=keep_audio,
+            plan=batch_plan,
+            preference=preference,
         )
         started = time.perf_counter()
 
@@ -606,6 +713,7 @@ def run_batch(
             "ended_utc": utc_now(),
             "profile": profile.name,
             "models_root": str(models.root),
+            "plan": batch_plan.to_dict(),
             "files": [o.to_dict() for o in result.outcomes],
             "failures": [
                 {"path": str(o.source), "error_class": o.error_class, "message": o.error} for o in result.failures

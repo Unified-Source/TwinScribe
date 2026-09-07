@@ -62,8 +62,22 @@ def overview_peaks(samples: np.ndarray, bins: int = OVERVIEW_BINS) -> list[int]:
     return [int(round(OVERVIEW_SCALE * value / top)) for value in peaks]
 
 
+WORD_TIMING_TOKEN = "token"
+WORD_TIMING_SEGMENT = "segment"
+
+
 def _engine_facts(transcript: Transcript) -> dict[str, str]:
-    return {"engine": transcript.engine, "model": transcript.model, "preset": transcript.preset}
+    facts = {"engine": transcript.engine, "model": transcript.model, "preset": transcript.preset}
+    settings = getattr(transcript, "settings", None) or {}
+    timing = settings.get("word_timing")
+    if timing:
+        facts["word_timing"] = str(timing)
+    return facts
+
+
+def approximate_word_times(facts: Mapping[str, Any] | None) -> bool:
+    """True when an engine's facts say its word times were placed by segment, not by token."""
+    return bool(facts) and str(facts.get("word_timing", WORD_TIMING_TOKEN)) == WORD_TIMING_SEGMENT
 
 
 def _union_seconds(intervals: Iterable[tuple[float, float]]) -> float:

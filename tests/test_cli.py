@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._fixtures import make_document, make_engines, make_models
+from tests._fixtures import make_document, make_engines, make_models, make_plan_for
 from twinscribe import __version__, audio, cli, pipeline
 from twinscribe.models import MODELS_ENV
 from twinscribe.outputs.transcript_doc import write_document
@@ -15,9 +15,12 @@ from twinscribe.outputs.transcript_doc import write_document
 
 def test_parser_commands(tmp_path: Path) -> None:
     parser = cli.build_parser()
-    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse"])
+    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse", "--device", "cuda"])
     assert run.command == "run" and run.quality == "quick" and run.threads == 2 and run.out == Path("o")
-    assert run.no_recurse is True
+    assert run.no_recurse is True and run.device == "cuda"
+    assert parser.parse_args(["run", "x"]).device == "auto"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "x", "--device", "npu"])
     check = parser.parse_args(["check", "--verify"])
     assert check.command == "check" and check.verify is True
     export = parser.parse_args(["export", "a.transcript.json", "--author", "Me"])
@@ -40,10 +43,12 @@ def test_check_reports_models_and_levels(tmp_path: Path, monkeypatch: pytest.Mon
     assert cli.main(["check"]) == 0
     out = capsys.readouterr().out
     assert "ffmpeg:" in out and "models root:" in out and "quality levels:  none" in out
+    assert "Machine:" in out and "plan (auto):" in out
     make_models(tmp_path / "models")
-    assert cli.main(["check"]) == 0
+    monkeypatch.setattr(cli, "probe_libraries", lambda: make_plan_for().backends and __import__("twinscribe.hardware", fromlist=["x"]).Libraries(True, True, True, True, {}))
+    assert cli.main(["check", "--device", "cpu"]) == 0
     out = capsys.readouterr().out
-    assert "quality levels:  quick, standard, careful" in out
+    assert "quality levels:  quick, standard, careful" in out and "plan (cpu):" in out
     assert cli.main(["check", "--verify"]) == 1          # present but unpinned files
     assert "unpinned" in capsys.readouterr().out
 
@@ -69,7 +74,9 @@ def test_run_records_engine_failures(tmp_path: Path, monkeypatch: pytest.MonkeyP
     # Engines that fail stand in for the real ones, so the recorded failure is what the test checks
     # whether or not the engine libraries are installed.
     monkeypatch.setattr(pipeline, "default_engines", lambda: make_engines(fail_publisher=True))
-    assert cli.main(["run", str(folder)]) == 1
+    monkeypatch.setattr(pipeline, "current_plan", lambda *args, **kwargs: make_plan_for())
+    monkeypatch.setattr(cli, "current_plan", lambda *args, **kwargs: make_plan_for())
+    assert cli.main(["run", str(folder), "--device", "cpu"]) == 1
     captured = capsys.readouterr()
     assert "FAILED" in captured.err and "publisher exploded" in captured.err and "batch record:" in captured.out
     record = json.loads((folder / "a.run.json").read_text(encoding="utf-8"))
