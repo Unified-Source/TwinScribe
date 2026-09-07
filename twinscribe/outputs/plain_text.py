@@ -8,9 +8,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.outputs.transcript_doc import clock, speaker_names
+from twinscribe.outputs.transcript_doc import approximate_word_times, clock, speaker_names
 
 DRAFT_NOTICE = "A transcript is a draft until it has been verified against the recording."
+APPROXIMATE_NOTE = "its word times are approximate, so the review list may miss short gaps"
 
 
 def _engine_line(facts: Mapping[str, Any] | None) -> str:
@@ -35,7 +36,8 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
         f"{len(labelled)} {noun}   |   produced {doc.get('produced_utc', '')}   |   "
         f"twinscribe {doc.get('version', '')}, quality level {doc.get('profile', '')}",
         f"Published engine: {_engine_line(engines.get('publisher'))}",
-        f"Checked against: {_engine_line(engines.get('detector'))}; its text is never published",
+        f"Checked against: {_engine_line(engines.get('detector'))}; its text is never published"
+        + (f"; {APPROXIMATE_NOTE}" if approximate_word_times(engines.get("detector")) else ""),
     ]
     diarization = engines.get("diarization")
     if diarization:

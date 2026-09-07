@@ -70,8 +70,10 @@ python -m twinscribe verify <review.json>
 Models live in one folder (`TWINSCRIBE_MODELS`, or `models` beside the package);
 `tools/fetch_models.py` fetches them from the sources the catalogue names and pins their
 digests. A folder that runs with nothing installed is described in
-[docs/Portable_Layout.md](docs/Portable_Layout.md). Specifications and the notes recorded
-while building from them are under `docs/specs/`.
+[docs/Portable_Layout.md](docs/Portable_Layout.md). Which platforms and accelerators are
+covered, and how the machine is probed for the best available option, is in
+[docs/Platforms.md](docs/Platforms.md). Specifications and the notes recorded while building
+from them are under `docs/specs/`.
 
 ## Components and licences
 

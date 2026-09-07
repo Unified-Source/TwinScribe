@@ -23,17 +23,38 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PYTHON_VERSION = "3.11.9"
-PYTHON_ZIP_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip"
-PLATFORM = "win_amd64"
 PYTHON_TAG = "3.11"
 
+# Windows architectures the embeddable interpreter is published for, with the wheel platform
+# tag of each. CTranslate2 publishes no wheel for arm64, so that build carries the ONNX
+# detector only.
+ARCHITECTURES: dict[str, str] = {"amd64": "win_amd64", "arm64": "win_arm64"}
+
 # The wheel set. PySide6 needs the abi3 tag stated explicitly for pip download.
-REQUIREMENTS: tuple[str, ...] = (
+REQUIREMENTS_COMMON: tuple[str, ...] = (
     "numpy>=1.26",
     "PySide6>=6.8",
-    "faster-whisper>=1.2,<2",
     "sherpa-onnx>=1.13,<2",
 )
+REQUIREMENTS_CT2: tuple[str, ...] = ("faster-whisper>=1.2,<2",)
+REQUIREMENTS_CUDA: tuple[str, ...] = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
+REQUIREMENTS_FFMPEG: tuple[str, ...] = ("imageio-ffmpeg>=0.5",)
+
+
+def python_zip_url(arch: str) -> str:
+    return f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-{arch}.zip"
+
+
+def requirements_for(arch: str, gpu: bool, bundled_ffmpeg: bool) -> tuple[str, ...]:
+    """The wheel set for an architecture: the ONNX-only set on arm64, CUDA packages on request."""
+    wheels = list(REQUIREMENTS_COMMON)
+    if arch == "amd64":
+        wheels.extend(REQUIREMENTS_CT2)
+        if gpu:
+            wheels.extend(REQUIREMENTS_CUDA)
+    if bundled_ffmpeg:
+        wheels.extend(REQUIREMENTS_FFMPEG)
+    return tuple(wheels)
 
 LAUNCHER_CLI = """@echo off
 setlocal
@@ -76,15 +97,21 @@ def download(url: str, target: Path) -> None:
 
 def plan(args: argparse.Namespace) -> list[str]:
     out: Path = args.out
+    wheels = requirements_for(args.arch, args.gpu, args.bundle_ffmpeg)
     steps = [
-        f"1. download {PYTHON_ZIP_URL} and unzip into {out / 'python'}; write python311._pth",
-        f"2. pip download {' '.join(REQUIREMENTS)} for {PLATFORM} / Python {PYTHON_TAG} (abi3 stated) into {out / 'wheels'}",
+        f"1. download {python_zip_url(args.arch)} and unzip into {out / 'python'}; write python311._pth",
+        f"2. pip download {' '.join(wheels)} for {ARCHITECTURES[args.arch]} / Python {PYTHON_TAG} (abi3 stated) into {out / 'wheels'}",
         f"3. pip install --no-deps --no-index --target {out / 'Lib' / 'site-packages'} every wheel",
         f"4. copy the twinscribe package from {REPO_ROOT / 'twinscribe'}",
         f"5. copy the models from {args.models} (with models.lock.json)" if args.models else "5. no models folder given; the app will report none",
-        f"6. copy ffmpeg from {args.ffmpeg} into {out / 'bin'}" if args.ffmpeg else "6. no ffmpeg given; decoding will need one on the search path",
+        f"6. copy ffmpeg from {args.ffmpeg} into {out / 'bin'}" if args.ffmpeg else (
+            "6. ffmpeg comes from the imageio-ffmpeg package" if args.bundle_ffmpeg else "6. no ffmpeg given; decoding will need one on the search path"),
         f"7. write twinscribe.cmd, twinscribe-app.cmd, NOTICE and RECORD.txt under {out}",
     ]
+    if args.arch == "arm64":
+        steps.append("note: CTranslate2 has no wheel for arm64; this build carries the ONNX detector only")
+    if args.gpu and args.arch != "amd64":
+        steps.append("note: the CUDA packages apply to amd64 only and are skipped")
     return steps
 
 
@@ -92,13 +119,14 @@ def build(args: argparse.Namespace) -> int:
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
     record: list[str] = []
+    url = python_zip_url(args.arch)
 
     python_dir = out / "python"
     python_dir.mkdir(exist_ok=True)
-    zip_path = out / f"python-{PYTHON_VERSION}-embed-amd64.zip"
-    print(f"downloading {PYTHON_ZIP_URL}")
-    download(PYTHON_ZIP_URL, zip_path)
-    record.append(f"{zip_path.name}  {sha256_file(zip_path)}  {PYTHON_ZIP_URL}")
+    zip_path = out / url.rsplit("/", 1)[-1]
+    print(f"downloading {url}")
+    download(url, zip_path)
+    record.append(f"{zip_path.name}  {sha256_file(zip_path)}  {url}")
     with zipfile.ZipFile(zip_path) as archive:
         archive.extractall(python_dir)
     zip_path.unlink()
@@ -112,14 +140,14 @@ def build(args: argparse.Namespace) -> int:
         [
             sys.executable, "-m", "pip", "download",
             "--dest", str(wheels),
-            "--platform", PLATFORM,
+            "--platform", ARCHITECTURES[args.arch],
             "--python-version", PYTHON_TAG,
             "--implementation", "cp",
             "--abi", f"cp{PYTHON_TAG.replace('.', '')}",
             "--abi", "abi3",
             "--abi", "none",
             "--only-binary=:all:",
-            *REQUIREMENTS,
+            *requirements_for(args.arch, args.gpu, args.bundle_ffmpeg),
         ],
         check=True,
     )
@@ -159,8 +187,11 @@ def build(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Assemble a portable twinscribe folder.")
+    parser = argparse.ArgumentParser(description="Assemble a portable twinscribe folder for Windows.")
     parser.add_argument("--out", type=Path, required=True, help="the folder to assemble")
+    parser.add_argument("--arch", default="amd64", choices=sorted(ARCHITECTURES), help="the Windows architecture")
+    parser.add_argument("--gpu", action="store_true", help="add the CUDA runtime packages (amd64 only)")
+    parser.add_argument("--bundle-ffmpeg", action="store_true", help="add the imageio-ffmpeg package as the decoder")
     parser.add_argument("--models", type=Path, default=None, help="a fetched models folder to copy in")
     parser.add_argument("--ffmpeg", type=Path, default=None, help="an ffmpeg executable to copy in")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and touch nothing")

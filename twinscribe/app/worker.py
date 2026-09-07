@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from twinscribe.hardware import Plan
 from twinscribe.models import ModelSet
 from twinscribe.pipeline import BatchResult, Engines, Outcome, Progress, run_batch
 from twinscribe.profiles import Profile
@@ -39,10 +40,12 @@ class PipelineWorker(QThread):
         engines: Engines | None = None,
         record_dir: Path | None = None,
         parent: QObject | None = None,
+        plan: Plan | None = None,
     ) -> None:
         super().__init__(parent)
         if len(rows) != len(sources):
             raise ValueError("rows and sources must have the same length")
+        self._plan = plan
         self._rows = list(rows)
         self._sources = [Path(s) for s in sources]
         self._profile = profile
@@ -86,6 +89,7 @@ class PipelineWorker(QThread):
                 engines=self._engines,
                 record_dir=self._record_dir,
                 on_outcome=on_outcome,
+                plan=self._plan,
             )
         except Exception as exc:  # noqa: BLE001 - a thread must not die silently
             result = BatchResult()

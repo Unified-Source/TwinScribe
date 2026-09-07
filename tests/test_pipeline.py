@@ -10,8 +10,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests._fixtures import make_engines, make_models
+from tests._fixtures import make_engines, make_models, make_plan_for
 from twinscribe import audio
+from twinscribe.models import KEY_WHISPER_TURBO, KEY_WHISPER_TURBO_ONNX
 from twinscribe.pipeline import (
     BATCH_SCHEMA,
     STAGES,
@@ -41,7 +42,8 @@ def recording(tmp_path: Path) -> Path:
 
 
 def job_for(source: Path, models, tmp_path: Path, **overrides) -> Job:
-    fields = dict(source=source, profile=profile_for("standard"), models=models, work_folder=tmp_path / "work")
+    fields = dict(source=source, profile=profile_for("standard"), models=models, work_folder=tmp_path / "work",
+                  plan=make_plan_for())
     fields.update(overrides)
     return Job(**fields)
 
@@ -141,6 +143,9 @@ def test_process_file_writes_six_outputs(recording: Path, models, tmp_path: Path
     assert record["engines"]["publisher"]["model"] == "parakeet-tdt-0.6b-v2-int8"
     assert record["engines"]["detector"]["preset"] == "production"
     assert record["settings"]["profile"] == "standard" and record["settings"]["review"]["min_silence_s"] == 0.8
+    assert record["settings"]["detector_backend"] == "ct2" and record["settings"]["detector_model"] == KEY_WHISPER_TURBO
+    assert record["settings"]["plan"]["platform"] == "windows-x86_64" and record["settings"]["parallel_engines"] is False
+    assert record["settings"]["detector_word_timing"] == "token"
     assert record["failures"] == []
     assert record["audio_s"] == 30.0 and record["transcribe_s"] == pytest.approx(1.5 + 1.5 + 0.9)
     assert set(record["versions"]) >= {"parakeet_tdt_lib", "whisper_ct2_lib", "sherpa_onnx"}
@@ -155,6 +160,72 @@ def test_process_file_writes_six_outputs(recording: Path, models, tmp_path: Path
     seen = [r.stage for r in reports]
     assert [s for s in stage_order if s in seen] == [s for i, s in enumerate(seen) if s not in seen[:i]]
     assert "decode" not in seen                       # a compliant WAV is fed as it is
+
+
+def test_detector_placement_follows_the_plan(recording: Path, models, tmp_path: Path) -> None:
+    seen: dict[str, dict] = {}
+    process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
+    assert seen["detector"] == {"device": "cpu", "compute_type": "int8", "device_index": 0}
+    assert seen["publisher"] == {"provider": "cpu"} and seen["diarizer"] == {"provider": "cpu"}
+
+    gpu_plan = make_plan_for(cuda=True, sherpa_cuda=True)
+    seen.clear()
+    process_file(job_for(recording, models, tmp_path, plan=gpu_plan), engines=make_engines(kwargs_seen=seen))
+    assert seen["detector"] == {"device": "cuda", "compute_type": "float16", "device_index": 0}
+    assert seen["publisher"] == {"provider": "cuda"} and seen["diarizer"] == {"provider": "cuda"}
+
+
+def test_onnx_detector_is_dispatched_without_ctranslate2(recording: Path, models, tmp_path: Path) -> None:
+    calls: list[str] = []
+    seen: dict[str, dict] = {}
+    result = process_file(
+        job_for(recording, models, tmp_path, plan=make_plan_for(ct2=False)),
+        engines=make_engines(calls=calls, kwargs_seen=seen),
+    )
+    assert calls == ["publisher", "detector_onnx", "diarizer"]
+    assert seen["detector_onnx"] == {"provider": "cpu"}
+    assert result.run_record["settings"]["detector_backend"] == "onnx"
+    assert result.run_record["settings"]["detector_model"] == KEY_WHISPER_TURBO_ONNX
+    assert result.run_record["settings"]["detector_word_timing"] == "segment"
+    assert "greedy" in result.run_record["settings"]["detector_preset"]
+    facts = result.document["engines"]["detector"]
+    assert facts["engine"] == "whisper_onnx" and facts["word_timing"] == "segment"
+    text = result.outputs.text.read_text(encoding="utf-8")
+    assert "word times are approximate" in text
+    assert result.marks == 2
+
+
+def test_explicit_detector_key_overrides_the_selection(recording: Path, models, tmp_path: Path) -> None:
+    calls: list[str] = []
+    result = process_file(
+        job_for(recording, models, tmp_path, detector=KEY_WHISPER_TURBO_ONNX),
+        engines=make_engines(calls=calls),
+    )
+    assert calls[1] == "detector_onnx" and result.run_record["settings"]["detector_model"] == KEY_WHISPER_TURBO_ONNX
+
+
+def test_engines_run_in_parallel_when_the_plan_separates_them(recording: Path, models, tmp_path: Path) -> None:
+    reports: list[Progress] = []
+    calls: list[str] = []
+    result = process_file(
+        job_for(recording, models, tmp_path, plan=make_plan_for(cuda=True)),
+        progress=reports.append,
+        engines=make_engines(calls=calls),
+    )
+    assert set(calls) == {"publisher", "detector", "diarizer"}
+    assert result.run_record["settings"]["parallel_engines"] is True
+    fractions = [r.fraction for r in reports]
+    assert fractions == sorted(fractions) and fractions[-1] == 1.0
+    assert any("at the same time" in r.message for r in reports)
+    assert result.marks == 2 and result.outputs.transcript.is_file()
+
+
+def test_missing_backend_library_is_a_clear_error(recording: Path, models, tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="no library for the onnx detector backend"):
+        process_file(
+            job_for(recording, models, tmp_path, plan=make_plan_for(sherpa=False), detector=KEY_WHISPER_TURBO_ONNX),
+            engines=make_engines(),
+        )
 
 
 def test_process_file_into_another_folder_uses_absolute_audio(recording: Path, models, tmp_path: Path) -> None:
@@ -247,6 +318,7 @@ def test_batch_records_every_outcome(recording: Path, models, tmp_path: Path) ->
         engines=make_engines(),
         record_dir=tmp_path / "runs",
         on_outcome=lambda index, outcome: seen.append((index, outcome.ok)),
+        plan=make_plan_for(),
     )
     assert seen == [(0, True), (1, False)]
     assert len(result.completed) == 1 and len(result.failures) == 1
@@ -254,6 +326,7 @@ def test_batch_records_every_outcome(recording: Path, models, tmp_path: Path) ->
     assert result.record_path is not None and result.record_path.parent == tmp_path / "runs"
     record = json.loads(result.record_path.read_text(encoding="utf-8"))
     assert record["schema"] == BATCH_SCHEMA and record["profile"] == "standard"
+    assert record["plan"]["detector_backend"] == "ct2"
     assert [f["ok"] for f in record["files"]] == [True, False]
     assert record["failures"][0]["path"] == str(broken)
     assert "outputs" in record["files"][0] and record["files"][0]["marks"] == 2
@@ -271,7 +344,7 @@ def test_batch_cancellation_marks_the_rest(recording: Path, models, tmp_path: Pa
         return count["reports"] > 4
 
     result = run_batch([recording, second, third], profile_for("standard"), models, engines=make_engines(),
-                       progress=progress, cancel=cancel, record_dir=tmp_path / "runs")
+                       progress=progress, cancel=cancel, record_dir=tmp_path / "runs", plan=make_plan_for())
     assert [o.cancelled for o in result.outcomes] == [True, True, True]
     assert result.failures == [] and result.completed == []
     record = json.loads(result.record_path.read_text(encoding="utf-8"))

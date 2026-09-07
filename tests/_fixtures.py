@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from twinscribe.engines.base import Diarization, Segment, SpeakerTurn, Transcript, Word
+from twinscribe.hardware import ARCH_X86_64, OS_WINDOWS, Gpu, Libraries, Machine, Plan, make_plan
 from twinscribe.labelling import build_lines, label_words
 from twinscribe.models import CATALOGUE, ModelSet, find_models
 from twinscribe.outputs.transcript_doc import build_document
@@ -92,18 +93,51 @@ def make_models(root: Path) -> ModelSet:
     return find_models(root)
 
 
+def make_plan_for(
+    ct2: bool = True,
+    sherpa: bool = True,
+    cuda: bool = False,
+    sherpa_cuda: bool = False,
+    preference: str = "auto",
+) -> Plan:
+    """A plan from a fictional machine: x86-64 Windows, 16 cores, optionally an NVIDIA device."""
+    machine = Machine(os=OS_WINDOWS, arch=ARCH_X86_64, machine_raw="AMD64", cores=16, memory_gb=32.0, processor="test")
+    versions: dict[str, str] = {}
+    if sherpa:
+        versions["sherpa-onnx"] = "1.13.7+cuda" if sherpa_cuda else "1.13.7"
+    if ct2:
+        versions["ctranslate2"] = "4.8.2"
+        versions["faster-whisper"] = "1.2.1"
+    libraries = Libraries(faster_whisper=ct2, ctranslate2=ct2, sherpa_onnx=sherpa, onnxruntime=sherpa, versions=versions)
+    gpus = (Gpu(name="Test GPU", memory_mb=8192, driver="1.0"),) if cuda else ()
+    return make_plan(
+        machine, libraries, gpus, cuda_count=1 if cuda else 0, preference=preference,
+        ct2_types_cpu=frozenset({"int8", "float32"}), ct2_types_cuda=frozenset({"float16"}),
+    )
+
+
 def make_engines(
     *,
     fail_publisher: bool = False,
     fail_diarizer: bool = False,
     no_diarizer: bool = False,
     calls: list[str] | None = None,
+    kwargs_seen: dict[str, dict] | None = None,
 ) -> Engines:
-    """Engines that return the fixtures above, report progress and optionally fail."""
+    """Engines that return the fixtures above, report progress and optionally fail.
 
-    def publisher(path, model_dir, vad, preset, threads=None, progress=None):
+    calls records the order of engine calls; kwargs_seen records the keyword arguments each
+    engine received, keyed by engine name.
+    """
+
+    def note(name: str, kwargs: dict) -> None:
         if calls is not None:
-            calls.append("publisher")
+            calls.append(name)
+        if kwargs_seen is not None:
+            kwargs_seen[name] = dict(kwargs)
+
+    def publisher(path, model_dir, vad, preset, threads=None, progress=None, **kwargs):
+        note("publisher", kwargs)
         if fail_publisher:
             raise RuntimeError("publisher exploded")
         if progress is not None:
@@ -111,22 +145,37 @@ def make_engines(
             progress(1.0)
         return transcript("parakeet_tdt", Path(model_dir).name, preset, words(PUBLISHED))
 
-    def detector(path, model_dir, preset, threads=None, progress=None):
-        if calls is not None:
-            calls.append("detector")
+    def detector(path, model_dir, preset, threads=None, progress=None, **kwargs):
+        note("detector", kwargs)
         if progress is not None:
             progress(0.3)
             progress(0.9)
         return transcript("whisper_ct2", Path(model_dir).name, preset, sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
 
-    def diarizer(path, segmentation, embedding, threads=None, threshold=0.5):
-        if calls is not None:
-            calls.append("diarizer")
+    def detector_onnx(path, model_dir, vad, preset, threads=None, progress=None, **kwargs):
+        note("detector_onnx", kwargs)
+        if progress is not None:
+            progress(0.5)
+            progress(1.0)
+        result = transcript("whisper_onnx", Path(model_dir).name, preset, sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
+        return Transcript(
+            engine=result.engine, model=result.model, preset=result.preset, segments=result.segments,
+            audio_s=result.audio_s, load_s=result.load_s, transcribe_s=result.transcribe_s, versions=result.versions,
+            extras=result.extras, settings={"provider": kwargs.get("provider", "cpu"), "word_timing": "segment"},
+        )
+
+    def diarizer(path, segmentation, embedding, threads=None, threshold=0.5, **kwargs):
+        note("diarizer", kwargs)
         if fail_diarizer:
             raise RuntimeError("embedding model rejected")
         return diarization(threshold=threshold)
 
-    return Engines(publisher=publisher, detector=detector, diarizer=None if no_diarizer else diarizer)
+    return Engines(
+        publisher=publisher,
+        detector=detector,
+        diarizer=None if no_diarizer else diarizer,
+        detector_onnx=detector_onnx,
+    )
 
 
 def make_document(source_name: str = "call.wav", with_speakers: bool = True, profile: str = "standard") -> dict[str, Any]:

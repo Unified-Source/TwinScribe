@@ -135,3 +135,26 @@ lock. Nothing in the three wrappers needed changing to run live.
 - Both `progress` callbacks fired as specified and drove the window's progress display.
 - Synthesised speech is studio-clean, two voices, no overlap: these figures show that the
   chain works, not what it does on recordings.
+
+## Device and provider parameters, and the ONNX detector
+
+19. **`whisper_ct2.transcribe()`** accepts `device` ("cpu" or "cuda"), `compute_type` and
+    `device_index`; the defaults are the measured configuration. **`parakeet.transcribe()`**
+    and **`diarize()`** accept `provider` (the onnxruntime execution provider; "cuda" only
+    does anything with the CUDA build of the library, and falls back with a warning
+    otherwise). All three record what they were asked in the transcript's new `settings`
+    field, which the run record carries. On a CUDA request the CUDA runtime packages, when
+    installed as packages, are registered with the process first (`hardware.py`).
+20. **`engines/whisper_onnx.py`** is a second detector, Whisper through sherpa-onnx, for the
+    platform where CTranslate2 has no wheel (Windows on ARM). It decodes windows of up to
+    thirty seconds cut at the quietest moment before each limit, never the voice detector's
+    utterances (the transducer decodes those, and a detector that saw the same boundaries
+    failed in the same places: measured, zero marks). The library asks for token timestamps;
+    the published exports have no cross-attention outputs and return none, so the recogniser
+    is built again without the request (to stop a warning per window) and words are spread
+    inside each segment's timestamps, confined to the voiced parts the voice detector finds.
+    Run natively on the synthesised conversation with the turbo export: 330 words, normalised
+    WER 1.8 per hundred (4 substitutions, 0 deletions, 2 insertions), 6 windows, load 3 s and
+    decode 32 s on this machine (not quotable); review list 3 marks, all on real dropped
+    phrases, against 5 for the CTranslate2 detector. The transcript's settings say
+    `word_timing: segment` so every document downstream can say the times are approximate.

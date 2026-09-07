@@ -54,9 +54,17 @@ class Source:
     archive: str | None = None
 
 
+BACKEND_CT2 = "ct2"
+BACKEND_ONNX = "onnx"
+
+
 @dataclass(frozen=True)
 class ModelSpec:
-    """One model in the catalogue: where it sits, what it must contain, where it came from."""
+    """One model in the catalogue: where it sits, what it must contain, where it came from.
+
+    backend names the library a detector model is for: ct2 (faster-whisper on CTranslate2)
+    or onnx (sherpa-onnx); other roles leave it empty.
+    """
 
     key: str
     role: str
@@ -66,6 +74,7 @@ class ModelSpec:
     required: tuple[str, ...]
     sources: tuple[Source, ...]
     note: str = ""
+    backend: str = ""
 
 
 def hub_sources(repo: str, files: tuple[str, ...], revision: str = "main") -> tuple[Source, ...]:
@@ -95,9 +104,21 @@ KEY_PARAKEET_V2 = "parakeet-tdt-0.6b-v2-int8"
 KEY_WHISPER_TURBO = "whisper-large-v3-turbo-ct2"
 KEY_WHISPER_DISTIL = "whisper-distil-large-v3-ct2"
 KEY_WHISPER_LARGE = "whisper-large-v3-ct2"
+KEY_WHISPER_TURBO_ONNX = "whisper-turbo-onnx"
+KEY_WHISPER_DISTIL_ONNX = "whisper-distil-large-v3-onnx"
+KEY_WHISPER_LARGE_ONNX = "whisper-large-v3-onnx"
 KEY_SILERO_VAD = "silero-vad"
 KEY_SEGMENTATION = "pyannote-segmentation-3.0"
 KEY_EMBEDDING = "titanet-large"
+
+_ONNX_WHISPER_NOTE = (
+    "Detector for machines without CTranslate2 (Windows on ARM); word times are spread inside "
+    "the segment timestamps unless the export carries attention outputs."
+)
+
+
+def _onnx_whisper_files(stem: str) -> tuple[str, ...]:
+    return (f"{stem}-encoder.int8.onnx", f"{stem}-decoder.int8.onnx", f"{stem}-tokens.txt")
 
 CATALOGUE: tuple[ModelSpec, ...] = (
     ModelSpec(
@@ -122,6 +143,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
         required=_WHISPER_REQUIRED,
         sources=hub_sources("mobiuslabsgmbh/faster-whisper-large-v3-turbo", _WHISPER_FILES),
         note="The detector the design measured; never published.",
+        backend=BACKEND_CT2,
     ),
     ModelSpec(
         key=KEY_WHISPER_DISTIL,
@@ -132,6 +154,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
         required=_WHISPER_REQUIRED,
         sources=hub_sources("Systran/faster-distil-whisper-large-v3", _WHISPER_FILES),
         note="Faster detector for the quick profile.",
+        backend=BACKEND_CT2,
     ),
     ModelSpec(
         key=KEY_WHISPER_LARGE,
@@ -142,6 +165,47 @@ CATALOGUE: tuple[ModelSpec, ...] = (
         required=_WHISPER_REQUIRED,
         sources=hub_sources("Systran/faster-whisper-large-v3", _WHISPER_FILES),
         note="Full-size detector for the careful profile.",
+        backend=BACKEND_CT2,
+    ),
+    ModelSpec(
+        key=KEY_WHISPER_TURBO_ONNX,
+        role=ROLE_DETECTOR,
+        title="Whisper large-v3-turbo, int8 ONNX export",
+        licence="MIT",
+        credit="OpenAI; ONNX export distributed by the sherpa-onnx project",
+        required=_onnx_whisper_files("turbo"),
+        sources=archive_sources(
+            _SHERPA_RELEASES + "asr-models/sherpa-onnx-whisper-turbo.tar.bz2", _onnx_whisper_files("turbo")
+        ),
+        note=_ONNX_WHISPER_NOTE,
+        backend=BACKEND_ONNX,
+    ),
+    ModelSpec(
+        key=KEY_WHISPER_DISTIL_ONNX,
+        role=ROLE_DETECTOR,
+        title="Distil-Whisper large-v3, int8 ONNX export",
+        licence="MIT",
+        credit="OpenAI and the Distil-Whisper authors; ONNX export distributed by the sherpa-onnx project",
+        required=_onnx_whisper_files("distil-large-v3"),
+        sources=archive_sources(
+            _SHERPA_RELEASES + "asr-models/sherpa-onnx-whisper-distil-large-v3.tar.bz2",
+            _onnx_whisper_files("distil-large-v3"),
+        ),
+        note=_ONNX_WHISPER_NOTE,
+        backend=BACKEND_ONNX,
+    ),
+    ModelSpec(
+        key=KEY_WHISPER_LARGE_ONNX,
+        role=ROLE_DETECTOR,
+        title="Whisper large-v3, int8 ONNX export",
+        licence="MIT",
+        credit="OpenAI; ONNX export distributed by the sherpa-onnx project",
+        required=_onnx_whisper_files("large-v3"),
+        sources=archive_sources(
+            _SHERPA_RELEASES + "asr-models/sherpa-onnx-whisper-large-v3.tar.bz2", _onnx_whisper_files("large-v3")
+        ),
+        note=_ONNX_WHISPER_NOTE,
+        backend=BACKEND_ONNX,
     ),
     ModelSpec(
         key=KEY_SILERO_VAD,

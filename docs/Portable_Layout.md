@@ -39,8 +39,17 @@ beside them, so the same folder works from any drive or share, and two copies ne
    executable given with `--ffmpeg`, the launchers and `NOTICE`;
 5. writes `RECORD.txt` with a digest for every file it placed.
 
-`--dry-run` prints the plan without downloading anything. The tool is not part of the package
-and is the one place that reaches the network, together with `tools/fetch_models.py`.
+`--arch amd64` (the default) or `--arch arm64` chooses the Windows architecture; the arm64
+build carries the ONNX detector only, because CTranslate2 publishes no wheel for it. `--gpu`
+adds the CUDA runtime packages (cuBLAS and cuDNN) so that CTranslate2 can use an NVIDIA
+device with nothing installed; `--bundle-ffmpeg` adds the imageio-ffmpeg package as the
+decoder instead of a copied executable. `--dry-run` prints the plan without downloading
+anything. The tool is not part of the package and is the one place that reaches the network,
+together with `tools/fetch_models.py`.
+
+On Linux and macOS the equivalent is a virtual environment with the same extras
+(`pip install .[engines,app]`, plus `cuda` or `ffmpeg` as wanted) and the models folder
+beside it; the launchers are one-line shell scripts setting the same three variables.
 
 ## The models
 
