@@ -1,8 +1,9 @@
-"""Timeline bar for the verification screen.
+"""Timeline bar for the twinscribe screens.
 
-One bar stands for the whole recording. Every mark is drawn on it in the accent colour,
-resolved marks in the success colour, the current mark is outlined, and a playhead line
-shows the playback position. Clicking or dragging on the bar asks the owner to seek.
+One bar stands for the whole recording. When a waveform overview is set it is drawn inside
+the bar, mirrored about the centre line. Every mark is drawn on it in the accent colour,
+resolved marks in the success colour, the current mark is outlined, and a playhead line shows
+the playback position. Clicking or dragging on the bar asks the owner to seek.
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ def format_mss(seconds: float) -> str:
 
 
 class Timeline(QWidget):
-    """Bar for the whole recording with marks, the current mark, and a playhead.
+    """Bar for the whole recording with marks, the current mark, a playhead and, when set, a
+    waveform overview.
 
     `seek_requested` carries the time in seconds under a click or drag on the bar.
     """
@@ -40,10 +42,14 @@ class Timeline(QWidget):
         self._resolved: list[bool] = []
         self._current: int | None = None
         self._playhead_s = 0.0
+        self._peaks: list[int] | None = None
+        self._peak_scale = 100
         self._accent = QColor("#2b63c9")
         self._success = QColor("#2a8a4f")
         self._track = QColor("#d9d9d9")
         self._outline = QColor("#1c1c1c")
+        self._peak_colour = QColor("#9a9aa0")
+        self._show_labels = True
         self.setMinimumHeight(MIN_HEIGHT_PX)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -51,14 +57,16 @@ class Timeline(QWidget):
     # ----- state -----------------------------------------------------------------------
 
     def set_colours(self, accent: QColor, success: QColor, track: QColor | None = None,
-                    outline: QColor | None = None) -> None:
-        """Set the state colours; `track` and `outline` fall back to the palette."""
+                    outline: QColor | None = None, peaks: QColor | None = None) -> None:
+        """Set the state colours; `track`, `outline` and `peaks` keep their values when None."""
         self._accent = QColor(accent)
         self._success = QColor(success)
         if track is not None:
             self._track = QColor(track)
         if outline is not None:
             self._outline = QColor(outline)
+        if peaks is not None:
+            self._peak_colour = QColor(peaks)
         self.update()
 
     def set_duration(self, seconds: float) -> None:
@@ -104,19 +112,35 @@ class Timeline(QWidget):
         """Playhead position in seconds."""
         return self._playhead_s
 
+    def set_peaks(self, peaks: Sequence[int] | None, scale: int = 100) -> None:
+        """Set the waveform overview (peak levels per bin on a 0 to `scale` range) or clear it."""
+        self._peaks = None if peaks is None else [int(p) for p in peaks]
+        self._peak_scale = max(1, int(scale))
+        self.update()
+
+    def peaks(self) -> list[int] | None:
+        """The waveform overview, or None."""
+        return None if self._peaks is None else list(self._peaks)
+
+    def set_show_labels(self, show: bool) -> None:
+        """Show or hide the time labels above the bar."""
+        self._show_labels = bool(show)
+        self.update()
+
     # ----- geometry --------------------------------------------------------------------
 
     def bar_rect(self) -> QRectF:
         """Rectangle of the bar itself, below the label strip."""
+        strip = LABEL_STRIP_PX if self._show_labels else 4
         return QRectF(
             SIDE_MARGIN_PX,
-            LABEL_STRIP_PX,
+            strip,
             max(1.0, self.width() - 2 * SIDE_MARGIN_PX),
-            max(1.0, self.height() - LABEL_STRIP_PX - 4),
+            max(1.0, self.height() - strip - 4),
         )
 
     def x_at_time(self, seconds: float) -> float:
-        """Horizontal pixel position of a time; the bar's left edge when duration is 0."""
+        """Horizontal pixel position of a time; the left edge of the bar when duration is 0."""
         bar = self.bar_rect()
         if self._duration_s <= 0.0:
             return bar.left()
@@ -136,27 +160,49 @@ class Timeline(QWidget):
 
     # ----- painting --------------------------------------------------------------------
 
+    def _paint_peaks(self, painter: QPainter, bar: QRectF) -> None:
+        if not self._peaks:
+            return
+        inset = 3.0
+        half = (bar.height() - 2 * inset) / 2.0
+        centre = bar.top() + inset + half
+        columns = max(1, int(bar.width()))
+        bins = len(self._peaks)
+        pen = QPen(self._peak_colour)
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        for column in range(columns):
+            lo = int(column * bins / columns)
+            hi = max(lo + 1, int((column + 1) * bins / columns))
+            level = max(self._peaks[lo:hi]) / float(self._peak_scale)
+            height = max(1.0, level * half)
+            x = bar.left() + column + 0.5
+            painter.drawLine(QPointF(x, centre - height), QPointF(x, centre + height))
+
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 (Qt virtual)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         bar = self.bar_rect()
         text_colour = self.palette().color(self.foregroundRole())
 
-        # End labels above the bar.
-        painter.setPen(text_colour)
-        label_rect = QRectF(bar.left(), 0.0, bar.width(), LABEL_STRIP_PX)
-        painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                         format_mss(0.0))
-        painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                         format_mss(self._duration_s))
+        if self._show_labels:
+            painter.setPen(text_colour)
+            label_rect = QRectF(bar.left(), 0.0, bar.width(), LABEL_STRIP_PX)
+            painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                             format_mss(0.0))
+            painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                             format_mss(self._duration_s))
 
-        # Track.
+        # Track and overview.
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._track)
         painter.drawRoundedRect(bar, 3.0, 3.0)
+        self._paint_peaks(painter, bar)
 
-        # Marks. The current one is drawn last so its outline is not covered.
+        # Marks. Translucent over an overview so the waveform shows through; the current one is
+        # drawn last so its outline is not covered.
         inset = 3.0
+        alpha = 150 if self._peaks else 255
         order = [i for i in range(len(self._marks)) if i != self._current]
         if self._current is not None:
             order.append(self._current)
@@ -165,7 +211,8 @@ class Timeline(QWidget):
             left = self.x_at_time(start)
             right = max(self.x_at_time(end), left + MIN_MARK_WIDTH_PX)
             rect = QRectF(left, bar.top() + inset, right - left, bar.height() - 2 * inset)
-            fill = self._success if self._resolved[index] else self._accent
+            fill = QColor(self._success if self._resolved[index] else self._accent)
+            fill.setAlpha(alpha)
             painter.setBrush(fill)
             if index == self._current:
                 pen = QPen(self._outline)

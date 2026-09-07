@@ -38,6 +38,9 @@ dev = [
 [project.scripts]
 twinscribe = "twinscribe.cli:main"
 
+[project.gui-scripts]
+twinscribe-app = "twinscribe.app.main:main"
+
 [project.urls]
 Homepage = "https://github.com/Unified-Source/twinscribe"
 
