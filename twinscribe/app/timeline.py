@@ -104,8 +104,13 @@ class Timeline(QWidget):
         return self._current
 
     def set_playhead(self, seconds: float) -> None:
-        """Move the playhead line to `seconds`, clamped to the recording."""
-        self._playhead_s = min(max(0.0, float(seconds)), self._duration_s)
+        """Move the playhead line to `seconds`, clamped to the recording once its length is known.
+
+        Before the player has reported a duration the value is kept as given, so a seek made
+        while a recording is still loading is not flattened to zero.
+        """
+        value = max(0.0, float(seconds))
+        self._playhead_s = min(value, self._duration_s) if self._duration_s > 0.0 else value
         self.update()
 
     def playhead(self) -> float:
