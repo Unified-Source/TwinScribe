@@ -302,6 +302,53 @@ def test_batch_runs_in_the_worker(app: QApplication, tmp_path: Path, home: Path,
     dispose(app, window)
 
 
+def test_job_card_shows_progress_and_provisional_lines(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from twinscribe.engines.base import Segment
+    from twinscribe.pipeline import Progress
+
+    window = make_window(app, tmp_path)
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert not window.job_card_visible()
+    window._batch_rows = [0]
+    window._batch_total = 1
+    window._batch_plan = make_plan_for()
+    window.library_model.set_queued([0])
+    window._load_item(window.library_model.item(0))
+    assert window.job_card_visible() and not window.job_card.running()
+    assert "Queued" in window.job_card.message_label.text()
+
+    window._on_progress(0, Progress("publisher", 0.2, "Transcribing (published engine)", 5.0, 20.0))
+    assert window.job_card.running() and window.job_card.stage_index() == 2
+    assert window.windowTitle().startswith("20%")
+    assert "20%" in window.batch_label.text()
+    window._on_partial(0, Segment(start=1.0, end=2.0, text="hello there", words=()))
+    window._on_partial(0, Segment(start=3.0, end=4.0, text="   ", words=()))
+    assert window.job_card.partial_count() == 1
+
+    # Selecting another recording and coming back keeps the provisional lines.
+    window.add_paths([media["done"]])
+    window.library_view.setCurrentIndex(window.library_model.index(1, 0))
+    app.processEvents()
+    assert not window.job_card_visible()
+    window.library_view.setCurrentIndex(window.library_model.index(0, 0))
+    app.processEvents()
+    assert window.job_card_visible() and window.job_card.partial_count() == 1
+    dispose(app, window)
+
+
+def test_worker_batch_shows_the_card_then_the_transcript(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path, engines=make_engines())
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window.start_transcription() is True
+    assert window.job_card_visible()
+    wait_until(app, lambda: window.worker is None)
+    assert not window.job_card_visible() and window.transcript_view.document_loaded()
+    assert window.windowTitle().startswith("fresh.wav")
+    dispose(app, window)
+
+
 def test_batch_failure_is_shown(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
     window = make_window(app, tmp_path, engines=make_engines(fail_publisher=True))
     window.add_paths([media["fresh"]])

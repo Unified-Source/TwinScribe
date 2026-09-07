@@ -251,6 +251,7 @@ def transcribe(
     threads: int | None = None,
     progress: Callable[[float], None] | None = None,
     provider: str = "cpu",
+    on_segment: Callable[[Segment], None] | None = None,
 ) -> Transcript:
     """Transcribe one 16 kHz mono WAV with a local transducer export and Silero VAD.
 
@@ -262,10 +263,12 @@ def transcribe(
     covers the whole feed-and-decode loop, with the decode share recorded in extras.
     progress, when given, is called at most a few hundred times per file with the fraction
     of the waveform fed so far, and once more with 1.0 after the final flush; an exception
-    raised inside it propagates and abandons the run, which is how a caller cancels. provider
-    names the onnxruntime execution provider for the recogniser ("cpu", or "cuda" with the
-    CUDA build of the library, which falls back to the processor with a warning otherwise);
-    the voice detector always runs on the processor.
+    raised inside it propagates and abandons the run, which is how a caller cancels; it is
+    also called with 0.0 once the models have loaded. on_segment, when given, receives each
+    utterance's segment as it is decoded. provider names the onnxruntime execution provider
+    for the recogniser ("cpu", or "cuda" with the CUDA build of the library, which falls back
+    to the processor with a warning otherwise); the voice detector always runs on the
+    processor.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -293,6 +296,8 @@ def transcribe(
     recognizer = _build_recognizer(sherpa_onnx, files, settings, thread_count, provider)
     vad = _build_vad(sherpa_onnx, vad_path, settings, thread_count)
     load_s = time.perf_counter() - load_start
+    if progress is not None:
+        progress(0.0)
 
     segments: list[Segment] = []
     decode_s = 0.0
@@ -319,7 +324,10 @@ def transcribe(
                 segment_end=length_s,
                 offset=start_s,
             )
-            segments.append(segment_from_words(words, start_s, start_s + length_s))
+            segment = segment_from_words(words, start_s, start_s + length_s)
+            segments.append(segment)
+            if on_segment is not None:
+                on_segment(segment)
 
     transcribe_start = time.perf_counter()
     position = 0

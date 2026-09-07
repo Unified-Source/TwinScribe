@@ -129,6 +129,30 @@ Not run here: a CUDA device (none on this machine), the CUDA build of sherpa-onn
 runtime packages, the parallel-engine path with real engines (exercised with synthetic engines
 in the tests), Linux and macOS.
 
+## The job card
+
+Before it, the detail pane showed the not-transcribed placeholder for a recording that was
+being worked on, engine reports could be seconds apart, and loading a model or labelling
+speakers reported nothing. Now:
+
+- Every progress report carries the seconds elapsed and an estimate of the seconds left,
+  computed per file from the pace so far (elapsed times the fraction remaining over the
+  fraction done), smoothed by an exponential average, and withheld until five per cent is
+  done. The card words it with hedges ("roughly 3 min left") because the pace of the second
+  engine differs from the first's.
+- The three engine wrappers call the progress callback once with 0.0 after their model has
+  loaded, so the pipeline's "Loading the published engine" message gives way to
+  "Transcribing" at the right moment; speaker labelling reports nothing inside the library
+  call, so its message says so and the heartbeat carries it.
+- The heartbeat is a dot that alternates colour on a timer while the card is running,
+  beside the time since the last engine report once that exceeds a few seconds, so a long
+  silence reads as "still working" rather than as a hang.
+- The published engine's segments reach the card as they are decoded and are shown as
+  provisional lines with their start times and no speaker labels. The detector's segments
+  are not passed on at all; the worker forwards the publisher's only.
+- The command line got the same information as one line updating in place on a terminal,
+  and as a line per stage change or ten per cent step when the output is not a terminal.
+
 ## Not exercised here
 
 - The quick and careful levels: their detectors are not fetched on this machine.

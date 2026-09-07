@@ -312,6 +312,7 @@ def transcribe(
     threads: int | None = None,
     progress: Callable[[float], None] | None = None,
     provider: str = "cpu",
+    on_segment: Callable[[Segment], None] | None = None,
 ) -> Transcript:
     """Transcribe one 16 kHz mono WAV with a sherpa-onnx Whisper export.
 
@@ -354,6 +355,8 @@ def transcribe(
     load_start = time.perf_counter()
     recognizer = _build_recognizer(sherpa_onnx, files, settings, thread_count, provider, token_timestamps=True)
     load_s = time.perf_counter() - load_start
+    if progress is not None:
+        progress(0.0)
 
     voiced: list[tuple[float, float]] | None = None
     vad_s = 0.0
@@ -378,7 +381,10 @@ def transcribe(
                 )
                 load_s += time.perf_counter() - rebuild_start
                 words, _ = decode_window(recognizer, chunk, start_s, voiced)
-        segments.append(segment_from_words(words, start_s, end / float(SAMPLE_RATE)))
+        segment = segment_from_words(words, start_s, end / float(SAMPLE_RATE))
+        segments.append(segment)
+        if on_segment is not None:
+            on_segment(segment)
         if progress is not None:
             progress(min(1.0, end / float(len(samples))))
     if progress is not None and not windows:

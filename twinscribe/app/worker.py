@@ -18,12 +18,15 @@ from twinscribe.profiles import Profile
 class PipelineWorker(QThread):
     """Runs one batch; `rows` maps each source back to its library row.
 
-    Signals carry the library row: `progress(row, fraction, message)`, `file_done(row, result)`
-    with the FileResult, `file_failed(row, error_class, message)`, and `finished_all(result)`
-    with the BatchResult once every recording has been processed or the batch was cancelled.
+    Signals carry the library row: `progress(row, report)` with the Progress record,
+    `partial(row, segment)` with each segment the published engine produces, `file_done(row,
+    result)` with the FileResult, `file_failed(row, error_class, message)`, and
+    `finished_all(result)` with the BatchResult once every recording has been processed or the
+    batch was cancelled.
     """
 
-    progress = Signal(int, float, str)
+    progress = Signal(int, object)
+    partial = Signal(int, object)
     file_done = Signal(int, object)
     file_failed = Signal(int, str, str)
     finished_all = Signal(object)
@@ -66,7 +69,11 @@ class PipelineWorker(QThread):
 
     def run(self) -> None:  # noqa: D401 (Qt virtual)
         def on_progress(index: int, _total: int, report: Progress) -> None:
-            self.progress.emit(self._rows[index], report.fraction, report.message)
+            self.progress.emit(self._rows[index], report)
+
+        def on_partial(index: int, role: str, segment) -> None:
+            if role == "publisher":
+                self.partial.emit(self._rows[index], segment)
 
         def on_outcome(index: int, outcome: Outcome) -> None:
             row = self._rows[index]
@@ -90,6 +97,7 @@ class PipelineWorker(QThread):
                 record_dir=self._record_dir,
                 on_outcome=on_outcome,
                 plan=self._plan,
+                on_partial=on_partial,
             )
         except Exception as exc:  # noqa: BLE001 - a thread must not die silently
             result = BatchResult()

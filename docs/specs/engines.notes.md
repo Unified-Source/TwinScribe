@@ -158,3 +158,8 @@ lock. Nothing in the three wrappers needed changing to run live.
     decode 32 s on this machine (not quotable); review list 3 marks, all on real dropped
     phrases, against 5 for the CTranslate2 detector. The transcript's settings say
     `word_timing: segment` so every document downstream can say the times are approximate.
+21. **Load reports and segment callbacks.** All three transcription wrappers call `progress`
+    once with 0.0 as soon as their model has loaded, and accept an optional `on_segment`
+    callback that receives each segment as it is decoded (the transducer per utterance, the
+    CTranslate2 Whisper per library segment, the ONNX Whisper per window). Both exist for the
+    application's job card; neither changes what the wrappers return.

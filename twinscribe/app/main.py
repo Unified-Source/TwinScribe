@@ -56,7 +56,8 @@ from PySide6.QtWidgets import (
 
 from twinscribe import __version__
 from twinscribe.app.icons import make_icon
-from twinscribe.app.library import STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
+from twinscribe.app.job_status import JobStatusCard
+from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
 from twinscribe.app.player import PlayerBar
 from twinscribe.app.settings import (
     ACCELERATIONS,
@@ -90,7 +91,7 @@ from twinscribe.outputs.transcript_doc import (
     speaker_names,
     write_document,
 )
-from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, output_paths
+from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, Progress, output_paths
 from twinscribe.profiles import ModelsMissing, Profile, available_profiles, profile_for, select as select_level
 from twinscribe.runrecord import write_json_atomic
 
@@ -311,6 +312,9 @@ class MainWindow(QMainWindow):
         self._position_s = 0.0
         self._batch_total = 0
         self._batch_done = 0
+        self._batch_rows: list[int] = []
+        self._batch_plan: Plan | None = None
+        self._partials: dict[int, list[tuple[float, float, str]]] = {}
 
         self.library_model = LibraryModel(self, settings.output_dir_or_none)
         self._build_ui()
@@ -469,7 +473,11 @@ class MainWindow(QMainWindow):
         self.transcript_view = TranscriptView(detail, self.theme)
         self.transcript_view.seek_requested.connect(self.seek)
         self.transcript_view.mark_requested.connect(self.play_mark)
-        detail_layout.addWidget(self.transcript_view, 1)
+        self.job_card = JobStatusCard(detail, self.theme)
+        self.detail_stack = QStackedLayout()
+        self.detail_stack.addWidget(self.transcript_view)
+        self.detail_stack.addWidget(self.job_card)
+        detail_layout.addLayout(self.detail_stack, 1)
 
         self.player_bar = PlayerBar(detail, self.theme)
         self.player_bar.seek_requested.connect(self.seek)
@@ -546,6 +554,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setIcon(make_icon("stop", text_colour, 14))
         self.library_view.set_theme(self.theme)
         self.transcript_view.set_theme(self.theme)
+        self.job_card.set_theme(self.theme)
         self.player_bar.set_theme(self.theme)
         if self._current_doc is not None:
             self._refresh_chips(self._current_doc)
@@ -629,11 +638,31 @@ class MainWindow(QMainWindow):
 
     # ----- detail ---------------------------------------------------------------------
 
+    def _show_job_card(self, item: MediaItem, row: int) -> None:
+        """Put the job card in front of the transcript pane for a queued or running recording."""
+        position = self._batch_rows.index(row) + 1 if row in self._batch_rows else 1
+        total = max(1, len(self._batch_rows))
+        if item.status == STATUS_RUNNING:
+            plan_lines = self._batch_plan.describe()[:3] if self._batch_plan is not None else []
+            self.job_card.show_running(item.name, position, total, plan_lines)
+            self.job_card.set_partials(self._partials.get(row, []))
+        else:
+            self.job_card.show_queued(item.name, position, total)
+        self.detail_stack.setCurrentWidget(self.job_card)
+
+    def _show_transcript_pane(self) -> None:
+        self.job_card.stop()
+        self.detail_stack.setCurrentWidget(self.transcript_view)
+
+    def job_card_visible(self) -> bool:
+        return self.detail_stack.currentWidget() is self.job_card
+
     def _show_empty_detail(self) -> None:
         self._current_doc = None
         self._current_path = None
         self.title_label.setText("No recording selected")
         self.meta_label.setText("Open a recording or a folder to begin.")
+        self._show_transcript_pane()
         self.transcript_view.set_document(None)
         self.player_bar.set_marks([])
         self.player_bar.set_peaks(None)
@@ -685,6 +714,11 @@ class MainWindow(QMainWindow):
             self.review_button.setEnabled(False)
             self.review_button.setText("Review")
             self.meta_label.setText(self._meta_text(item, None))
+        if doc is None and item.status in (STATUS_QUEUED, STATUS_RUNNING):
+            row = self.library_model.row_for_path(item.path)
+            self._show_job_card(item, row if row is not None else 0)
+        else:
+            self._show_transcript_pane()
         self._set_source(item.path)
 
     def _meta_text(self, item: MediaItem, doc: dict[str, Any] | None) -> str:
@@ -929,11 +963,17 @@ class MainWindow(QMainWindow):
             plan=plan,
         )
         self.worker.progress.connect(self._on_progress)
+        self.worker.partial.connect(self._on_partial)
         self.worker.file_done.connect(self._on_file_done)
         self.worker.file_failed.connect(self._on_file_failed)
         self.worker.finished_all.connect(self._on_batch_finished)
         self._batch_total = len(chosen)
         self._batch_done = 0
+        self._batch_rows = list(chosen)
+        self._batch_plan = plan
+        self._partials = {}
+        if self._current_row in chosen:
+            self._show_job_card(self.library_model.item(self._current_row), self._current_row)
         self.stop_button.show()
         self.transcribe_button.setEnabled(False)
         self.quality_box.setEnabled(False)
@@ -954,16 +994,32 @@ class MainWindow(QMainWindow):
             self.stop_button.setEnabled(False)
             self.set_status("Stopping after the current step.")
 
-    def _on_progress(self, row: int, fraction: float, message: str) -> None:
-        self.library_model.set_progress(row, fraction, message)
+    def _on_progress(self, row: int, report: Progress) -> None:
+        was_queued = 0 <= row < self.library_model.rowCount() and self.library_model.item(row).status != STATUS_RUNNING
+        self.library_model.set_progress(row, report.fraction, report.message)
         item = self.library_model.item(row) if 0 <= row < self.library_model.rowCount() else None
         name = item.name if item is not None else ""
-        self.batch_label.setText(f"{self._batch_done} of {self._batch_total}   |   {name}   |   {message} {int(round(100 * fraction))}%")
+        percent = int(round(100 * report.fraction))
+        self.batch_label.setText(f"{self._batch_done} of {self._batch_total}   |   {name}   |   {report.message} {percent}%")
         if row == self._current_row and item is not None:
             self.meta_label.setText(self._meta_text(item, None))
+            if was_queued or not self.job_card_visible() or not self.job_card.running():
+                self._show_job_card(item, row)
+            self.job_card.update_progress(report)
+            self.setWindowTitle(f"{percent}%  {item.name}  |  {APP_TITLE}")
+
+    def _on_partial(self, row: int, segment) -> None:
+        text = str(getattr(segment, "text", "")).strip()
+        if not text:
+            return
+        entry = (float(segment.start), float(segment.end), text)
+        self._partials.setdefault(row, []).append(entry)
+        if row == self._current_row and self.job_card_visible():
+            self.job_card.add_partial(*entry)
 
     def _on_file_done(self, row: int, result: FileResult) -> None:
         self._batch_done += 1
+        self._partials.pop(row, None)
         self.library_model.set_done(row, result.document, result.outputs.transcript)
         if row == self._current_row:
             position = self._position_s
@@ -976,13 +1032,24 @@ class MainWindow(QMainWindow):
 
     def _on_file_failed(self, row: int, error_class: str, message: str) -> None:
         self._batch_done += 1
+        self._partials.pop(row, None)
         self.library_model.set_failed(row, f"{error_class}: {message}")
         if row == self._current_row:
-            self.meta_label.setText(self._meta_text(self.library_model.item(row), None))
+            self._load_item(self.library_model.item(row))
         self.set_status(f"{self.library_model.item(row).name} failed: {error_class}: {message}")
 
     def _on_batch_finished(self, result) -> None:
         self.library_model.reset_pending()
+        self._partials = {}
+        self._batch_rows = []
+        if self._current_row is not None and 0 <= self._current_row < self.library_model.rowCount():
+            item = self.library_model.item(self._current_row)
+            self.setWindowTitle(f"{item.name}  |  {APP_TITLE}")
+            if self.job_card_visible():
+                self._load_item(item)
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.alert(self)
         failures = len(result.failures) if result is not None else 0
         completed = len(result.completed) if result is not None else 0
         cancelled = any(o.cancelled for o in result.outcomes) if result is not None else False

@@ -114,9 +114,17 @@ transcript recording that its word times are approximate.
      its folder or its state, its duration; an empty-state hint when empty;
    - right, the recording: name and a meta line (duration, speakers, level, review count);
      speaker chips with word counts (double-click renames, which rewrites the text, Word and
-     subtitle files); a video pane shown only when the file has video; the transcript pane;
-     the player bar with the timeline (waveform overview, review marks, playhead), back and
-     forward five seconds, play or pause, the time readout, follow, speed and volume.
+     subtitle files); a video pane shown only when the file has video; the transcript pane,
+     or, while the recording is queued or being worked on, the job card in its place: a stage
+     strip with the current stage lit and the finished ones ticked, a progress bar and
+     percentage, the message of the moment (loading an engine, transcribing, checking,
+     labelling speakers, writing), the time elapsed, a hedged estimate of the time left from
+     the pace so far, a heartbeat that keeps moving between engine reports with the time since
+     the last report, the acceleration plan in use, its place in the batch, and the lines the
+     published engine has produced so far (provisional, without speaker labels; the detector's
+     text never appears); the player bar with the timeline (waveform overview, review marks,
+     playhead), back and forward five seconds, play or pause, the time readout, follow, speed
+     and volume.
 3. Status bar: the last message on the left, the batch state on the right.
 
 ## 7. Behaviour
@@ -135,10 +143,16 @@ transcript recording that its word times are approximate.
   previous review span; F toggles following; Delete removes the selected recordings; Ctrl+O
   and Ctrl+Shift+O open files and a folder.
 - Transcribe queues every recording not yet done, runs the batch in a thread and updates each
-  row as it goes; the current recording reloads when its outputs land. Before starting, the
-  engine libraries and a complete model set are checked and a plain message names what is
-  missing. Stop cancels after the current step; recordings not reached go back to not
-  transcribed.
+  row as it goes; the current recording shows the job card while it waits and while it runs,
+  the window title carries the percentage, and the transcript replaces the card when the
+  outputs land; the taskbar entry is flashed when a batch finishes while the window is not
+  active. Before starting, the engine libraries and a complete model set are checked and a
+  plain message names what is missing. Stop cancels after the current step; recordings not
+  reached go back to not transcribed.
+- Engines report once when their model has loaded, so the card can tell loading from
+  decoding, and hand each segment to the card as it is produced; the command line shows one
+  status line updating in place on a terminal (stage, percentage, elapsed, time left), and
+  prints on stage changes and every ten per cent elsewhere.
 - Review opens the verification screen of `verify_app.md` on the recording's review set and
   reloads the pane when it closes. Show outputs opens the folder that holds the outputs.
 - Settings: models folder (with a report of what it holds), outputs beside each recording or

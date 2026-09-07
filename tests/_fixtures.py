@@ -136,25 +136,38 @@ def make_engines(
         if kwargs_seen is not None:
             kwargs_seen[name] = dict(kwargs)
 
-    def publisher(path, model_dir, vad, preset, threads=None, progress=None, **kwargs):
+    def publisher(path, model_dir, vad, preset, threads=None, progress=None, on_segment=None, **kwargs):
         note("publisher", kwargs)
         if fail_publisher:
             raise RuntimeError("publisher exploded")
+        result = transcript("parakeet_tdt", Path(model_dir).name, preset, words(PUBLISHED))
+        if progress is not None:
+            progress(0.0)
+        if on_segment is not None:
+            for segment in result.segments:
+                on_segment(segment)
         if progress is not None:
             progress(0.5)
             progress(1.0)
-        return transcript("parakeet_tdt", Path(model_dir).name, preset, words(PUBLISHED))
+        return result
 
-    def detector(path, model_dir, preset, threads=None, progress=None, **kwargs):
+    def detector(path, model_dir, preset, threads=None, progress=None, on_segment=None, **kwargs):
         note("detector", kwargs)
+        result = transcript("whisper_ct2", Path(model_dir).name, preset, sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
+        if progress is not None:
+            progress(0.0)
+        if on_segment is not None:
+            for segment in result.segments:
+                on_segment(segment)
         if progress is not None:
             progress(0.3)
             progress(0.9)
-        return transcript("whisper_ct2", Path(model_dir).name, preset, sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
+        return result
 
-    def detector_onnx(path, model_dir, vad, preset, threads=None, progress=None, **kwargs):
+    def detector_onnx(path, model_dir, vad, preset, threads=None, progress=None, on_segment=None, **kwargs):
         note("detector_onnx", kwargs)
         if progress is not None:
+            progress(0.0)
             progress(0.5)
             progress(1.0)
         result = transcript("whisper_onnx", Path(model_dir).name, preset, sorted(words(PUBLISHED + DETECTOR_EXTRA), key=lambda w: w.start))
