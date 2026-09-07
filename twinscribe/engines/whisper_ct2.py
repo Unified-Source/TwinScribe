@@ -12,7 +12,7 @@ import copy
 import importlib
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -184,6 +184,7 @@ def transcribe(
     model_dir: str | os.PathLike[str],
     preset: str | Mapping[str, Any],
     threads: int | None = None,
+    progress: Callable[[float], None] | None = None,
 ) -> Transcript:
     """Transcribe one file with a local CTranslate2 Whisper conversion on the processor.
 
@@ -191,6 +192,9 @@ def transcribe(
     consumption of the segment generator, because the library decodes lazily and the
     generator is where the work happens. The duration the library reports after voice
     filtering is recorded in extras so that a benchmark run states how much audio it decoded.
+    progress, when given, is called after every decoded segment with the fraction of the
+    audio reached so far; an exception raised inside it propagates and abandons the run,
+    which is how a caller cancels.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -215,10 +219,14 @@ def transcribe(
 
     transcribe_start = time.perf_counter()
     generator, info = model.transcribe(str(audio), **kwargs)
-    segments = tuple(segment_from_library(seg, want_words) for seg in generator)
-    transcribe_s = time.perf_counter() - transcribe_start
-
     audio_s = float(getattr(info, "duration", 0.0) or 0.0)
+    collected: list[Segment] = []
+    for seg in generator:
+        collected.append(segment_from_library(seg, want_words))
+        if progress is not None and audio_s > 0.0:
+            progress(min(1.0, float(seg.end) / audio_s))
+    segments = tuple(collected)
+    transcribe_s = time.perf_counter() - transcribe_start
     extras: dict[str, float | int | None] = {
         "duration_after_vad_s": _float_or_none(getattr(info, "duration_after_vad", None)),
         "language_probability": _float_or_none(getattr(info, "language_probability", None)),

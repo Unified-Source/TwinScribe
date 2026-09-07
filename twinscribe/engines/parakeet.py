@@ -15,7 +15,7 @@ import importlib.util
 import os
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -242,6 +242,7 @@ def transcribe(
     vad_model_path: str | os.PathLike[str],
     preset: str | Mapping[str, Any],
     threads: int | None = None,
+    progress: Callable[[float], None] | None = None,
 ) -> Transcript:
     """Transcribe one 16 kHz mono WAV with a local transducer export and Silero VAD.
 
@@ -251,6 +252,9 @@ def transcribe(
     full window rather than discarded, so no audio at the end of a file is skipped silently.
     The load timer covers recogniser and detector construction; the transcription timer
     covers the whole feed-and-decode loop, with the decode share recorded in extras.
+    progress, when given, is called at most a few hundred times per file with the fraction
+    of the waveform fed so far, and once more with 1.0 after the final flush; an exception
+    raised inside it propagates and abandons the run, which is how a caller cancels.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -305,10 +309,15 @@ def transcribe(
     transcribe_start = time.perf_counter()
     position = 0
     total = len(samples)
+    report_every = max(window, total // 200)
+    next_report = report_every
     while position + window <= total:
         vad.accept_waveform(samples[position : position + window])
         position += window
         drain()
+        if progress is not None and position >= next_report:
+            progress(min(1.0, position / total))
+            next_report += report_every
     if position < total:
         tail = np.zeros(window, dtype=np.float32)
         tail[: total - position] = samples[position:]
@@ -316,6 +325,8 @@ def transcribe(
         drain()
     vad.flush()
     drain()
+    if progress is not None:
+        progress(1.0)
     transcribe_s = time.perf_counter() - transcribe_start
 
     extras: dict[str, float | int | None] = {
