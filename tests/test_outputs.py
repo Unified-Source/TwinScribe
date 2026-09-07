@@ -60,6 +60,7 @@ def test_document_shape() -> None:
     doc = make_document()
     assert doc["schema"] == TRANSCRIPT_SCHEMA
     assert doc["source"]["name"] == "call.wav" and doc["duration_s"] == 30.0
+    assert doc["source"]["outputs"] == "call"
     assert [s["name"] for s in doc["speakers"]] == ["Speaker 1", "Speaker 2"]
     assert [s["words"] for s in doc["speakers"]] == [11, 7]
     assert speaker_count(doc) == 2

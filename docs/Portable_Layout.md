@@ -56,7 +56,9 @@ TitaNet models (CC BY 4.0) require attribution, which the NOTICE file carries.
 
 ## What was and was not exercised
 
-The fetch tool ran for the two smallest catalogue entries into a scratch folder to exercise
-the single-file and the archive paths and the lock. The build tool ran in `--dry-run` form
-only. No portable folder has been assembled or started yet; that belongs with the lab hardware
-step, on the platform the laptops actually run.
+The fetch tool has fetched the standard-profile set (the published engine, the turbo
+detector, the voice detector and the two speaker models) into a store beside the package and
+verified every file against the lock; the two other detectors remain to be fetched where they
+are wanted. The build tool ran in `--dry-run` form only. No portable folder has been
+assembled or started yet; that belongs with the lab hardware step, on the platform the
+laptops actually run.

@@ -57,6 +57,34 @@ def split_rows(text: str, max_row_chars: int = MAX_ROW_CHARS) -> str:
     return text[:cut].rstrip() + "\n" + text[cut + 1 :].lstrip()
 
 
+def _chunk_fits(chunk: Sequence[dict], prefix_len: int, max_chars: int, max_seconds: float) -> bool:
+    length = prefix_len + sum(len(str(w["w"]).strip()) + 1 for w in chunk) - 1
+    span = float(chunk[-1]["e"]) - float(chunk[0]["s"])
+    return length <= max_chars and span <= max_seconds
+
+
+def _balanced_chunks(words: Sequence[dict], prefix_len: int, max_chars: int, max_seconds: float) -> list[list[dict]]:
+    """Halve a run of words at the boundary nearest its middle (by characters) until every
+    chunk fits; a single word that does not fit is kept whole."""
+    chunk = list(words)
+    if len(chunk) <= 1 or _chunk_fits(chunk, prefix_len, max_chars, max_seconds):
+        return [chunk]
+    total = sum(len(str(w["w"]).strip()) + 1 for w in chunk)
+    running = 0
+    best_index = 1
+    best_distance = float("inf")
+    for index in range(1, len(chunk)):
+        running += len(str(chunk[index - 1]["w"]).strip()) + 1
+        distance = abs(running - total / 2.0)
+        if distance < best_distance:
+            best_distance = distance
+            best_index = index
+    left, right = chunk[:best_index], chunk[best_index:]
+    return _balanced_chunks(left, prefix_len, max_chars, max_seconds) + _balanced_chunks(
+        right, prefix_len, max_chars, max_seconds
+    )
+
+
 def build_cues(
     doc: Mapping[str, Any],
     max_chars: int = MAX_CUE_CHARS,
@@ -65,10 +93,12 @@ def build_cues(
 ) -> list[Cue]:
     """Cues from the transcript lines.
 
-    Each line is cut into chunks at word boundaries so that no cue exceeds max_chars of text
-    or max_seconds of time. Every cue is prefixed with the name of the speaker so that a
-    viewer who joins mid-way knows who is speaking. A cue shorter than min_seconds is
-    lengthened, up to the start of the next cue.
+    A line that exceeds max_chars of text or max_seconds of time is halved at the word
+    boundary nearest its middle, and the halves again until every chunk fits, so that the
+    chunks of one line are of similar size rather than a full cue followed by a one-word tail.
+    Every cue is prefixed with the name of the speaker so that a viewer who joins mid-way knows
+    who is speaking. A cue shorter than min_seconds is lengthened, up to the start of the next
+    cue.
     """
     if max_chars < 8 or max_seconds <= 0.0 or min_seconds < 0.0:
         raise ValueError("max_chars must be at least 8, max_seconds positive, min_seconds not negative")
@@ -81,22 +111,9 @@ def build_cues(
         words = [w for w in line.get("words", []) if str(w.get("w", "")).strip()]
         if not words:
             continue
-        chunk: list[dict] = []
-
-        def flush(chunk: list[dict] = chunk) -> None:
-            if chunk:
-                text = prefix + " ".join(str(w["w"]).strip() for w in chunk)
-                cues.append(Cue(float(chunk[0]["s"]), float(chunk[-1]["e"]), split_rows(text)))
-
-        for word in words:
-            if chunk:
-                length = len(prefix) + sum(len(str(w["w"]).strip()) + 1 for w in chunk) + len(str(word["w"]).strip())
-                span = float(word["e"]) - float(chunk[0]["s"])
-                if length > max_chars or span > max_seconds:
-                    flush(chunk)
-                    chunk = []
-            chunk.append(word)
-        flush(chunk)
+        for chunk in _balanced_chunks(words, len(prefix), max_chars, max_seconds):
+            text = prefix + " ".join(str(w["w"]).strip() for w in chunk)
+            cues.append(Cue(float(chunk[0]["s"]), float(chunk[-1]["e"]), split_rows(text)))
 
     adjusted: list[Cue] = []
     for position, cue in enumerate(cues):

@@ -37,9 +37,14 @@ extended; tests `tests/test_models.py`, `test_profiles.py`, `test_labelling.py`,
   the head of the text and Word documents rather than a seventh file; the sixth file is the
   transcript document, which the application reads back and every renderer works from.
 - Outputs go beside the recording by default because that is where players look for a
-  subtitle file, and because the review set can then name the audio by a relative path. Two
-  recordings with the same stem in one folder would overwrite each other's outputs; not
-  guarded, recorded here.
+  subtitle file, and because the review set can then name the audio by a relative path. When
+  another recording with the same stem sits in the same folder, the outputs take the full file
+  name as their base (`call.mp3.txt` beside `call.wav.txt`); the transcript document records
+  the base it was written under so the text and Word pointers to the review list stay right.
+  A same-stem pair spread over two folders with one shared output folder is not guarded.
+- Subtitle lines longer than a cue are halved at the word boundary nearest the middle, and
+  the halves again until every chunk fits, rather than filled greedily, so that a long line
+  yields chunks of similar size and never a one-word tail.
 - The run record's `input_path` is the path as given, which may be absolute; the record is a
   local artifact of the operator. The transcript document carries only the file name.
 - The transcript document never carries the detector's text; the review set does, as the hint
@@ -68,20 +73,41 @@ extended; tests `tests/test_models.py`, `test_profiles.py`, `test_labelling.py`,
 - The worker checks for the engine libraries before starting only when it will use the real
   engines; with injected engines (tests) the check is skipped.
 
+## Exercised on the development machine, after the first delivery
+
+The first delivery ran only with synthetic engines. Afterwards the engine libraries were
+installed: sherpa-onnx natively on the 64-bit ARM interpreter, and the whole engines extra
+(faster-whisper, CTranslate2, sherpa-onnx) in a second, x64 environment that runs under the
+platform's emulation, because CTranslate2 publishes no wheel for the native architecture. The
+standard-profile models were fetched into `models/` beside the package with
+`tools/fetch_models.py` and every file verified against the lock afterwards.
+
+- The three live engine tests pass: the transducer and the diarizer natively and under
+  emulation, Whisper under emulation.
+- `twinscribe run` at the standard level processed a synthesised two-voice conversation (two
+  of the operating system's speech-synthesiser voices reading a 28-line script, 143 seconds)
+  in WAV, MP3 and MP4 form (the MP4 carrying a blank video track). Every output was written
+  for all three, the two speakers were found and labelled correctly throughout, and the four
+  or five review marks per file landed on phrases the published engine had dropped ("Is it"
+  before "the same lane", "It does." before "The booking is for one hour"). The figures are
+  in `engines.notes.md`. Synthesised speech says nothing about accuracy on recordings; it
+  shows that the chain works end to end.
+- The window opened the produced documents: the transcript followed the audio, the video file
+  showed its video pane, the review screen opened on the review set.
+- Two defects surfaced and are fixed here: the fixture's `.mp3` and `.wav` share a stem and
+  overwrote each other's outputs (the naming rule above); and greedy cue splitting left a
+  one-word trailing cue on lines just over the limit (the balanced splitting above).
+
 ## Not exercised here
 
-Neither engine library nor any model was present on the development machine, so:
-
-- the pipeline ran only with synthetic engines; the real engine calls run as far as their
-  input checks (as recorded in `engines.notes.md`); the `progress` callbacks in the two
-  wrappers are written but were not run inside a live decode;
-- `tools/fetch_models.py` was run for the two smallest catalogue entries only (the voice
-  detector, a single file, and the segmentation model, an archive member), into a scratch
-  folder, to exercise both download paths and the lock; the large models were not fetched;
-- `tools/build_portable.py` was run in `--dry-run` form only; no embeddable interpreter or
-  wheel set was downloaded and no portable folder was assembled;
-- the Word document was checked as well-formed OOXML and read back through a Word library in
-  the tests; it was not opened in Word itself on this machine.
+- The quick and careful levels: their detectors are not fetched on this machine.
+- Speed. Under emulation the pipeline took about as long as the audio for a 143 second file
+  with the model loads included, and the run records flagged other load on the machine. The
+  design document rules out quoting any throughput figure from this machine; the lab hardware
+  measures speed.
+- `tools/build_portable.py` was run in `--dry-run` form only; no portable folder was assembled.
+- The Word document was checked as well-formed OOXML and read back through a Word library; it
+  was not opened in Word itself on this machine.
 
 ## The platform, observed
 
@@ -100,3 +126,10 @@ Windows 11, 64-bit ARM, PySide6 6.11.2 with the FFmpeg multimedia backend.
   including the margin; the block background of the gap markers is set on the block format,
   which paints the full width too. Both read correctly in both palettes.
 - Setting a stylesheet changes `QApplication.style().objectName()`; see change 3 above.
+- A window grab (`QWidget.grab()`) does not capture the frames the video pane paints; the
+  pane shows as a blank area in a screenshot while the frames are visible on screen.
+- Two interpreters share one checkout on this machine: the native one runs the window and
+  the transducer, the emulated x64 one runs the whole pipeline. The window's Transcribe
+  button therefore reports the Whisper library as not installed in the native environment;
+  the pipeline was driven from the command line of the x64 environment instead. On the lab
+  hardware, where every wheel is native, one environment serves both.

@@ -3,8 +3,9 @@
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.
 
-**Status: early. The design is measured; the implementation is built from it and runs end to
-end with synthetic engines. The live engines have not yet run on lab hardware.**
+**Status: early. The design is measured; the implementation is built from it and has run end
+to end with the live engines on synthesised speech. The accuracy table on public corpora and
+the first throughput figures are the next milestone, on lab hardware.**
 
 ## What it is for
 
