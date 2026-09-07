@@ -112,10 +112,13 @@ def has_sibling_with_same_stem(source: Path) -> bool:
         entries = list(source.parent.iterdir())
     except OSError:
         return False
-    stem = source.stem.lower()
-    name = source.name.lower()
+    stem = os.path.normcase(source.stem)
+    name = os.path.normcase(source.name)
     return any(
-        entry.name.lower() != name and entry.stem.lower() == stem and is_media(entry) and entry.is_file()
+        os.path.normcase(entry.name) != name
+        and os.path.normcase(entry.stem) == stem
+        and is_media(entry)
+        and entry.is_file()
         for entry in entries
     )
 
@@ -162,10 +165,10 @@ def discover_media(paths: Iterable[str | os.PathLike[str]], recursive: bool = Tr
             candidates = path.rglob("*") if recursive else path.glob("*")
             for candidate in candidates:
                 if candidate.is_file() and is_media(candidate):
-                    found.setdefault(str(candidate.resolve()).lower(), candidate)
+                    found.setdefault(os.path.normcase(str(candidate.resolve())), candidate)
         elif path.is_file() and is_media(path):
-            found.setdefault(str(path.resolve()).lower(), path)
-    return sorted(found.values(), key=lambda p: (str(p.parent).lower(), p.name.lower()))
+            found.setdefault(os.path.normcase(str(path.resolve())), path)
+    return sorted(found.values(), key=lambda p: (os.path.normcase(str(p.parent)), os.path.normcase(p.name)))
 
 
 @dataclass(frozen=True)

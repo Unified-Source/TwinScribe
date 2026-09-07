@@ -198,7 +198,9 @@ def segment_from_words(words: Sequence[Word], start: float, end: float) -> Segme
     )
 
 
-def _build_recognizer(sherpa_onnx: Any, files: Mapping[str, Path], settings: Mapping[str, Any], threads: int) -> Any:
+def _build_recognizer(
+    sherpa_onnx: Any, files: Mapping[str, Path], settings: Mapping[str, Any], threads: int, provider: str = "cpu"
+) -> Any:
     return sherpa_onnx.OfflineRecognizer.from_transducer(
         encoder=str(files["encoder"]),
         decoder=str(files["decoder"]),
@@ -209,9 +211,14 @@ def _build_recognizer(sherpa_onnx: Any, files: Mapping[str, Path], settings: Map
         feature_dim=FEATURE_DIM,
         decoding_method=str(settings.get("decoding_method", "greedy_search")),
         model_type=MODEL_TYPE,
-        provider="cpu",
+        provider=provider,
         debug=False,
     )
+
+
+def build_vad(sherpa_onnx: Any, vad_model_path: Path, settings: Mapping[str, Any], threads: int) -> Any:
+    """The Silero voice detector from a preset; always on the processor, where it is cheap."""
+    return _build_vad(sherpa_onnx, vad_model_path, settings, threads)
 
 
 def _build_vad(sherpa_onnx: Any, vad_model_path: Path, settings: Mapping[str, Any], threads: int) -> Any:
@@ -243,6 +250,7 @@ def transcribe(
     preset: str | Mapping[str, Any],
     threads: int | None = None,
     progress: Callable[[float], None] | None = None,
+    provider: str = "cpu",
 ) -> Transcript:
     """Transcribe one 16 kHz mono WAV with a local transducer export and Silero VAD.
 
@@ -254,7 +262,10 @@ def transcribe(
     covers the whole feed-and-decode loop, with the decode share recorded in extras.
     progress, when given, is called at most a few hundred times per file with the fraction
     of the waveform fed so far, and once more with 1.0 after the final flush; an exception
-    raised inside it propagates and abandons the run, which is how a caller cancels.
+    raised inside it propagates and abandons the run, which is how a caller cancels. provider
+    names the onnxruntime execution provider for the recogniser ("cpu", or "cuda" with the
+    CUDA build of the library, which falls back to the processor with a warning otherwise);
+    the voice detector always runs on the processor.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -272,10 +283,14 @@ def transcribe(
     samples = read_wav_mono16k(audio)
     audio_s = len(samples) / float(SAMPLE_RATE)
 
+    if provider == "cuda":
+        from twinscribe.hardware import register_cuda_libraries
+
+        register_cuda_libraries()
     sherpa_onnx = import_sherpa_onnx()
 
     load_start = time.perf_counter()
-    recognizer = _build_recognizer(sherpa_onnx, files, settings, thread_count)
+    recognizer = _build_recognizer(sherpa_onnx, files, settings, thread_count, provider)
     vad = _build_vad(sherpa_onnx, vad_path, settings, thread_count)
     load_s = time.perf_counter() - load_start
 
@@ -348,4 +363,5 @@ def transcribe(
         transcribe_s=transcribe_s,
         versions=library_versions(sherpa_onnx),
         extras=extras,
+        settings={"provider": provider},
     )

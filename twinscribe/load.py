@@ -105,6 +105,29 @@ def _snapshot_linux() -> Snapshot | None:
     )
 
 
+def _snapshot_darwin() -> Snapshot | None:
+    """macOS: the host's CPU tick counters through the Mach host statistics call."""
+    import ctypes
+    import ctypes.util
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c") or "libSystem.dylib", use_errno=True)
+    host_cpu_load_info = 3
+    cpu_state_max = 4
+    counts = (ctypes.c_uint32 * cpu_state_max)()
+    count = ctypes.c_uint32(cpu_state_max)
+    libc.mach_host_self.restype = ctypes.c_uint32
+    libc.host_statistics.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)]
+    libc.host_statistics.restype = ctypes.c_int
+    wall = time.monotonic()
+    if libc.host_statistics(libc.mach_host_self(), host_cpu_load_info, counts, ctypes.byref(count)) != 0:
+        return None
+    ticks_per_second = float(os.sysconf("SC_CLK_TCK")) if hasattr(os, "sysconf") else 100.0
+    # States: user, system, idle, nice; idle is the one excluded.
+    busy_ticks = int(counts[0]) + int(counts[1]) + int(counts[3])
+    times = os.times()
+    return Snapshot(wall_s=wall, total_cpu_s=busy_ticks / ticks_per_second, self_cpu_s=times.user + times.system)
+
+
 def snapshot() -> Snapshot | None:
     """Read the CPU counters now; None where the platform offers no supported counters."""
     try:
@@ -112,6 +135,8 @@ def snapshot() -> Snapshot | None:
             return _snapshot_windows()
         if sys.platform.startswith("linux"):
             return _snapshot_linux()
+        if sys.platform == "darwin":
+            return _snapshot_darwin()
         return None
     except Exception:
         return None
@@ -205,6 +230,24 @@ def _on_mains_linux() -> bool | None:
     return None
 
 
+def _on_mains_darwin() -> bool | None:
+    """macOS: the power management tool names the present supply."""
+    import subprocess
+
+    completed = subprocess.run(
+        ["pmset", "-g", "batt"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=5, check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    text = completed.stdout.decode("utf-8", errors="replace")
+    if "AC Power" in text:
+        return True
+    if "Battery Power" in text:
+        return False
+    return None
+
+
 def on_mains_power() -> bool | None:
     """True on external power, False on battery, None where it cannot be determined."""
     try:
@@ -212,6 +255,8 @@ def on_mains_power() -> bool | None:
             return _on_mains_windows()
         if sys.platform.startswith("linux"):
             return _on_mains_linux()
+        if sys.platform == "darwin":
+            return _on_mains_darwin()
         return None
     except Exception:
         return None

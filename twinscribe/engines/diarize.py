@@ -70,6 +70,7 @@ def _build_config(
     threads: int,
     num_clusters: int,
     threshold: float,
+    provider: str = "cpu",
 ) -> Any:
     config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
@@ -78,13 +79,13 @@ def _build_config(
             ),
             num_threads=threads,
             debug=False,
-            provider="cpu",
+            provider=provider,
         ),
         embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
             model=str(embedding_model),
             num_threads=threads,
             debug=False,
-            provider="cpu",
+            provider=provider,
         ),
         clustering=sherpa_onnx.FastClusteringConfig(
             num_clusters=num_clusters,
@@ -105,13 +106,16 @@ def diarize(
     threads: int | None = None,
     num_speakers: int | None = None,
     threshold: float = 0.5,
+    provider: str = "cpu",
 ) -> Diarization:
     """Label speakers in one 16 kHz mono WAV.
 
     num_speakers=None (the default) clusters by threshold, so a speaker the embeddings
     cannot separate is missing from the output rather than hidden inside a forced count.
     Pass num_speakers only when the count is known and the consequence described in the
-    module docstring is accepted. A smaller threshold yields more clusters.
+    module docstring is accepted. A smaller threshold yields more clusters. provider names
+    the onnxruntime execution provider for both models ("cpu", or "cuda" with the CUDA build
+    of the library).
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -128,10 +132,14 @@ def diarize(
     samples = read_wav_mono16k(audio)
     audio_s = len(samples) / float(SAMPLE_RATE)
 
+    if provider == "cuda":
+        from twinscribe.hardware import register_cuda_libraries
+
+        register_cuda_libraries()
     sherpa_onnx = import_sherpa_onnx()
 
     load_start = time.perf_counter()
-    config = _build_config(sherpa_onnx, segmentation, embedding, thread_count, num_clusters, threshold)
+    config = _build_config(sherpa_onnx, segmentation, embedding, thread_count, num_clusters, threshold, provider)
     diarizer = sherpa_onnx.OfflineSpeakerDiarization(config)
     load_s = time.perf_counter() - load_start
     expected_rate = int(diarizer.sample_rate)
@@ -153,6 +161,7 @@ def diarize(
         "min_duration_off_s": MIN_DURATION_OFF_S,
         "threads": thread_count,
         "labels_found": len({turn.label for turn in turns}),
+        "provider": provider,
     }
     return Diarization(
         segments=turns,

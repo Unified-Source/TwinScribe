@@ -41,7 +41,8 @@ class Transcript:
 
     load_s covers model construction; transcribe_s covers the whole decode including full
     consumption of any lazy generator. audio_s is the duration the engine reported or the
-    length of the waveform fed to it. extras carries engine-specific numeric bookkeeping.
+    length of the waveform fed to it. extras carries engine-specific numeric bookkeeping;
+    settings carries what the engine was asked to use (device, compute type, provider).
     """
 
     engine: str
@@ -53,6 +54,7 @@ class Transcript:
     transcribe_s: float
     versions: dict[str, str] = field(default_factory=dict)
     extras: dict[str, float | int | None] = field(default_factory=dict)
+    settings: dict[str, object] = field(default_factory=dict)
 
     @property
     def words(self) -> list[Word]:

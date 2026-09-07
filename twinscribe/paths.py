@@ -6,25 +6,45 @@ beside itself.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 HOME_ENV = "TWINSCRIBE_HOME"
 APP_FOLDER = "twinscribe"
 
 
+def default_app_home(platform_name: str | None = None, environ: dict[str, str] | None = None) -> Path:
+    """The per-user application data folder of each platform, without creating it.
+
+    Windows: the local application data folder. macOS: Application Support under the
+    library. Elsewhere: the XDG data home, else .local/share. A hidden folder under the home
+    directory is the last resort everywhere.
+    """
+    name = platform_name if platform_name is not None else sys.platform
+    env = environ if environ is not None else dict(os.environ)
+    home = Path(env.get("HOME") or env.get("USERPROFILE") or Path.home())
+    if name.startswith("win"):
+        local = env.get("LOCALAPPDATA")
+        if local:
+            return Path(local) / APP_FOLDER
+    elif name.startswith("darwin"):
+        return home / "Library" / "Application Support" / APP_FOLDER
+    else:
+        xdg = env.get("XDG_DATA_HOME")
+        if xdg:
+            return Path(xdg) / APP_FOLDER
+        return home / ".local" / "share" / APP_FOLDER
+    return home / f".{APP_FOLDER}"
+
+
 def app_home() -> Path:
     """Folder for settings, decoded work files and batch records; created when absent.
 
     The environment variable named by HOME_ENV wins, so a portable copy can point at a folder
-    beside itself. Otherwise the per-user application data folder is used, and the user's home
-    folder as a last resort.
+    beside itself. Otherwise the platform's per-user application data folder is used.
     """
     override = os.environ.get(HOME_ENV)
-    if override:
-        base = Path(override)
-    else:
-        local = os.environ.get("LOCALAPPDATA") if os.name == "nt" else os.environ.get("XDG_DATA_HOME")
-        base = Path(local) / APP_FOLDER if local else Path.home() / f".{APP_FOLDER}"
+    base = Path(override) if override else default_app_home()
     base.mkdir(parents=True, exist_ok=True)
     return base
 

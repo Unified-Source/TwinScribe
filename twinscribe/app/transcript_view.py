@@ -117,7 +117,7 @@ class TranscriptView(QTextEdit):
         base_font = QFont(self.font())
         base_font.setPointSizeF(11.0)
         time_font = QFont(base_font)
-        time_font.setFamilies(["Consolas", "Cascadia Mono", "Menlo", "monospace"])
+        time_font.setFamilies(["Consolas", "Cascadia Mono", "SF Mono", "Menlo", "DejaVu Sans Mono", "Liberation Mono", "monospace"])
         time_font.setStyleHint(QFont.StyleHint.Monospace)
         time_font.setPointSizeF(9.0)
         name_font = QFont(base_font)
