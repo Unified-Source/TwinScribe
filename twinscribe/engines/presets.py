@@ -4,8 +4,10 @@ The Whisper presets are keyed by the parameter names of faster-whisper's transcr
 they can be passed through unchanged. Two exist because the design measures the Whisper
 family at production settings (beam search, no voice filter, every window decoded, word
 times on) and also needs a cheap benchmark arm (greedy, voice filter, conditioning on) that
-represents the settings most deployments actually run. The transducer preset describes the
-Silero voice detector that carves long audio into utterances for the transducer.
+represents the settings most deployments actually run. A third, quick, is production with
+greedy decoding; it keeps word times on because the review list is built from them. The
+transducer preset describes the Silero voice detector that carves long audio into utterances
+for the transducer.
 """
 
 from __future__ import annotations
@@ -19,6 +21,16 @@ DEFAULT_TEMPERATURE_LADDER: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 WHISPER_PRESETS: dict[str, dict[str, Any]] = {
     "production": {
         "beam_size": 5,
+        "vad_filter": False,
+        "no_speech_threshold": 0.7,
+        "condition_on_previous_text": False,
+        "word_timestamps": True,
+        "compression_ratio_threshold": 2.4,
+        "log_prob_threshold": -1.0,
+        "temperature": DEFAULT_TEMPERATURE_LADDER,
+    },
+    "quick": {
+        "beam_size": 1,
         "vad_filter": False,
         "no_speech_threshold": 0.7,
         "condition_on_previous_text": False,

@@ -82,3 +82,15 @@ the reason (library not installed, or the corresponding environment variable
 `TWINSCRIBE_SEGMENTATION_MODEL`, `TWINSCRIBE_EMBEDDING_MODEL` unset). Once models are
 present they exercise the whole path on a synthetic tone and check the bookkeeping, not
 the words.
+
+## Later additions (batch application)
+
+17. **Progress callbacks.** `whisper_ct2.transcribe()` and `parakeet.transcribe()` accept an
+    optional `progress` argument, called with the fraction of the audio reached: after every
+    decoded segment for Whisper, at most a few hundred times per file plus once with 1.0
+    after the final flush for the transducer. An exception raised inside it propagates and
+    abandons the run, which is how the application cancels. The default is None and nothing
+    else about the wrappers changed. Not run inside a live decode on the development machine.
+18. **The `quick` Whisper preset.** Production with greedy decoding (beam 1) and word times
+    on. The benchmark preset has word times off and so cannot feed the review list; the quick
+    quality level of the application needed a preset that can.
