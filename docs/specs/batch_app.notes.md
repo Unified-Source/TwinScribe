@@ -252,3 +252,33 @@ after the music was spread into it as well.
   out of the review list too.
 - The stage weights moved to make room for the pass (publisher 0.32, detector 0.38, scenes
   0.03); the job card's strip gained a "Non-speech" step.
+
+## Speaker labels: what could be improved here, and what could not
+
+A request to improve the accuracy of the speaker labels. What this machine can measure is
+limited: the synthesised fixtures use two of the operating system's voices, which the
+embeddings separate almost perfectly (DER 1.7 per cent on the scene fixture, all of it missed
+speech at turn edges, no confusion), so no change to the clustering can be shown to help or
+hurt here. The design document's finding stands: labelling is the weakest part of the system,
+its worst case (quiet and overlapped speakers) is structural, and the honest measurement needs
+the public corpora on the lab hardware. What was done is therefore what can be shown correct
+without a corpus:
+
+- The speaker count as an explicit opt-in. With the count known, the design measured a large
+  gain, and also the failure it hides (a degenerate cluster satisfying the count while two real
+  speakers are absorbed elsewhere); so the default stays the threshold, the control says why,
+  and a fixed count is written into the run record, the document and the text header with the
+  caution beside it.
+- Flicker smoothing inside utterances. A turn boundary from the segmentation model jitters
+  against the transducer's word boundaries by a fraction of a second; a single short word in
+  the middle of a sentence then carries the other speaker's label. Such a word now takes the
+  label of its neighbours when both agree; edges and multi-word runs are untouched, so a real
+  interjection is never absorbed. The count relabelled is in the run record, so a recording
+  where the rule fires often is visible.
+- Contiguous labels: the library skips cluster numbers it discards (speaker_00 and speaker_03
+  for two speakers on the fixture); labels are renumbered by first appearance.
+
+Not done, and why: swapping the embedding model (the section 6 candidates) or tuning the
+clustering threshold without a labelled corpus would be tuning on synthetic voices, which the
+design forbids; both wait for the lab hardware and the corpus pipeline, where per-speaker
+recall and the Jaccard error rate can be scored.

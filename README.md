@@ -60,11 +60,14 @@ review marks on the timeline and between the lines, and a button that opens the 
 screen. Choose a quality level, press Transcribe, and the pipeline runs over everything not
 yet done with progress per file. While a recording is being transcribed its lines appear as
 they are decoded; they can be read without being pulled to the newest line, clicked to move
-the playhead, and played from. Nothing in the package reaches the network.
+the playhead, and played from. The number of speakers can be given when it is known; by
+default the count comes from clustering, so a speaker the models cannot separate is missing
+from the labels, where the word counts show it, rather than hidden inside another. Nothing in
+the package reaches the network.
 
 ```
 python -m twinscribe app [recordings or folders]
-python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto]
+python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto] [--speakers N]
 python -m twinscribe check [--verify]
 python -m twinscribe export <transcript.json>
 python -m twinscribe verify <review.json>

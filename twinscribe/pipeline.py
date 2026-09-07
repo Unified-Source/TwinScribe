@@ -23,7 +23,7 @@ from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
 from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRESET
 from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
 from twinscribe.hardware import BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
-from twinscribe.labelling import build_lines, label_words
+from twinscribe.labelling import DEFAULT_MIN_RUN_S, DEFAULT_MIN_RUN_WORDS, build_lines, label_words, smooth_labels
 from twinscribe.models import KEY_AUDIO_TAGGER, KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import build_document, overview_peaks, write_document
@@ -200,7 +200,9 @@ class Job:
 
     plan is the acceleration plan (probed from the machine when None); detector names the
     detector model to run (resolved from the profile and the plan when None); preference is
-    auto, cpu or cuda and matters only when the plan is probed here.
+    auto, cpu or cuda and matters only when the plan is probed here; speakers is the speaker
+    count when it is known, an explicit opt-in (None clusters by threshold, so a speaker the
+    models cannot separate is missing from the labels rather than hidden inside another).
     """
 
     source: Path
@@ -214,6 +216,7 @@ class Job:
     plan: Plan | None = None
     detector: str | None = None
     preference: str = DEVICE_AUTO
+    speakers: int | None = None
 
 
 @dataclass(frozen=True)
@@ -516,6 +519,7 @@ def process_file(
                     threads=job.threads,
                     threshold=profile.diarization_threshold,
                     provider=plan.diarizer.provider,
+                    **({"num_speakers": int(job.speakers)} if job.speakers is not None else {}),
                 )
             except Cancelled:
                 raise
@@ -527,6 +531,7 @@ def process_file(
 
         words = published_kept.words
         labels = label_words(words, diarization.segments if diarization is not None else ())
+        labels, smoothed_words = smooth_labels(words, labels, published_kept.segments)
         lines = build_lines(words, labels)
         marks = build_review(
             words,
@@ -615,6 +620,12 @@ def process_file(
             "publisher_engine_settings": dict(published.settings),
             "detector_engine_settings": dict(detector.settings),
             "parallel_engines": parallel,
+            "speakers": job.speakers,
+            "labelling": {
+                "smoothed_words": smoothed_words,
+                "min_run_words": DEFAULT_MIN_RUN_WORDS,
+                "min_run_s": DEFAULT_MIN_RUN_S,
+            },
             "scenes": dict(analysis.settings)
             | dict(non_speech)
             | {
@@ -755,6 +766,7 @@ def run_batch(
     plan: Plan | None = None,
     preference: str = DEVICE_AUTO,
     on_partial: BatchPartialFn | None = None,
+    speakers: int | None = None,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
 
@@ -762,7 +774,8 @@ def run_batch(
     batch record lists every recording with its outputs or its error. on_outcome, when given,
     is called with the index and the outcome as soon as each recording finishes; on_partial
     with the index, the role and each segment the published engine produces. The acceleration
-    plan is probed once for the batch when not given.
+    plan is probed once for the batch when not given. speakers is the speaker count when it is
+    known, applied to every recording of the batch; None clusters by threshold.
     """
     started_utc = utc_now()
     result = BatchResult()
@@ -790,6 +803,7 @@ def run_batch(
             keep_audio=keep_audio,
             plan=batch_plan,
             preference=preference,
+            speakers=speakers,
         )
         started = time.perf_counter()
 
@@ -832,6 +846,7 @@ def run_batch(
             "ended_utc": utc_now(),
             "profile": profile.name,
             "models_root": str(models.root),
+            "speakers": speakers,
             "plan": batch_plan.to_dict(),
             "files": [o.to_dict() for o in result.outcomes],
             "failures": [

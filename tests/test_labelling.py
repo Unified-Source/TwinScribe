@@ -5,19 +5,55 @@ from __future__ import annotations
 import pytest
 
 from tests._fixtures import PUBLISHED, turns, words
-from twinscribe.engines.base import SpeakerTurn, Word
+from twinscribe.engines.base import Segment, SpeakerTurn, Word
 from twinscribe.labelling import (
     UNLABELLED_NAME,
     build_lines,
     default_names,
     display_name,
     label_words,
+    smooth_labels,
     summarise_speakers,
 )
 
 
 def word(text: str, start: float, end: float) -> Word:
     return Word(text=text, start=start, end=end, prob=None)
+
+
+def test_smoothing_absorbs_a_one_word_flicker_inside_an_utterance() -> None:
+    ws = [word(f"w{i}", i * 0.3, i * 0.3 + 0.25) for i in range(8)]
+    utterance = Segment(0.0, 2.35, "", tuple(ws))
+    smoothed, changed = smooth_labels(ws, ["A", "A", "A", "B", "A", "A", "A", "A"], [utterance])
+    assert smoothed == ["A"] * 8 and changed == 1
+    # Two flickers in one utterance are both absorbed.
+    smoothed, changed = smooth_labels(ws, ["A", "B", "A", "A", "A", "B", "A", "A"], [utterance])
+    assert smoothed == ["A"] * 8 and changed == 2
+    # A run of two words is a change of speaker; so is a single long word.
+    steady = ["A", "A", "A", "B", "B", "A", "A", "A"]
+    assert smooth_labels(ws, steady, [utterance]) == (steady, 0)
+    long_words = [word("x", 0.0, 0.2), word("y", 0.2, 0.9), word("z", 0.9, 1.2)]
+    assert smooth_labels(long_words, ["A", "B", "A"], [Segment(0.0, 1.2, "", tuple(long_words))]) == (["A", "B", "A"], 0)
+    # Different labels on the two sides are a real change, not a flicker.
+    mixed = ["A", "A", "A", "B", "C", "C", "C", "C"]
+    assert smooth_labels(ws, mixed, [utterance]) == (mixed, 0)
+
+
+def test_smoothing_leaves_utterance_edges_alone() -> None:
+    ws = [word(f"w{i}", i * 0.3, i * 0.3 + 0.25) for i in range(8)]
+    utterance = Segment(0.0, 2.35, "", tuple(ws))
+    edges = ["B", "A", "A", "A", "A", "A", "A", "B"]
+    assert smooth_labels(ws, edges, [utterance]) == (edges, 0)
+    # The flicker word is the last word of the first utterance: an edge, left as it is.
+    two = [Segment(0.0, 1.15, "", tuple(ws[:4])), Segment(1.2, 2.35, "", tuple(ws[4:]))]
+    crossing = ["A", "A", "A", "B", "A", "A", "A", "A"]
+    assert smooth_labels(ws, crossing, two) == (crossing, 0)
+    # Words no utterance covers are not smoothed at all.
+    assert smooth_labels(ws, crossing, []) == (crossing, 0)
+    with pytest.raises(ValueError):
+        smooth_labels(ws, ["A"], [utterance])
+    with pytest.raises(ValueError):
+        smooth_labels(ws, crossing, two, min_run_words=0)
 
 
 def test_words_inside_turns_take_their_label() -> None:

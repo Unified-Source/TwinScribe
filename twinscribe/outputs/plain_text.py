@@ -70,8 +70,15 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
     ]
     diarization = engines.get("diarization")
     if diarization:
-        threshold = (diarization.get("settings") or {}).get("threshold")
-        detail = f", clustering threshold {threshold}" if threshold is not None else ""
+        settings = diarization.get("settings") or {}
+        count = settings.get("num_speakers")
+        threshold = settings.get("threshold")
+        if count:
+            detail = f", speaker count fixed at {int(count)} (a speaker the models cannot separate is then hidden inside another label)"
+        elif threshold is not None:
+            detail = f", clustering threshold {threshold}"
+        else:
+            detail = ""
         lines.append(f"Speaker labels: {diarization.get('engine', '')}{detail}")
     failure = doc.get("speaker_failure")
     if failure:

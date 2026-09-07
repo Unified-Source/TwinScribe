@@ -15,10 +15,10 @@ from twinscribe.outputs.transcript_doc import write_document
 
 def test_parser_commands(tmp_path: Path) -> None:
     parser = cli.build_parser()
-    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse", "--device", "cuda"])
+    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse", "--device", "cuda", "--speakers", "3"])
     assert run.command == "run" and run.quality == "quick" and run.threads == 2 and run.out == Path("o")
-    assert run.no_recurse is True and run.device == "cuda"
-    assert parser.parse_args(["run", "x"]).device == "auto"
+    assert run.no_recurse is True and run.device == "cuda" and run.speakers == 3
+    assert parser.parse_args(["run", "x"]).device == "auto" and parser.parse_args(["run", "x"]).speakers is None
     with pytest.raises(SystemExit):
         parser.parse_args(["run", "x", "--device", "npu"])
     check = parser.parse_args(["check", "--verify"])
@@ -62,6 +62,8 @@ def test_run_without_recordings_or_models(tmp_path: Path, monkeypatch: pytest.Mo
     audio.synthetic_wav(empty / "a.wav", 1.0)
     assert cli.main(["run", str(empty)]) == 2
     assert "needs models that are not present" in capsys.readouterr().err
+    assert cli.main(["run", str(empty), "--speakers", "0"]) == 2
+    assert "--speakers must be at least 1" in capsys.readouterr().err
 
 
 def test_run_records_engine_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
