@@ -25,6 +25,11 @@ twinscribe-portable/
 
 The launchers set `TWINSCRIBE_HOME`, `TWINSCRIBE_MODELS` and the search path to the folders
 beside them, so the same folder works from any drive or share, and two copies never share state.
+`twinscribe.cmd` is the command line (`twinscribe.cmd run <folder>` transcribes with progress
+in the console; no arguments opens the window); `twinscribe-app.cmd` opens the window without
+a console, and that window writes anything it would have printed, and any unhandled error, to
+`home\twinscribe.log`. The checkout carries the same two launchers for the project's own
+virtual environment.
 
 ## Assembling it
 

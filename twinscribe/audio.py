@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -191,15 +192,29 @@ def decode_to_wav(
     return _wav_duration(dst)
 
 
-def sha256_of(path: PathLike) -> str:
-    """Hex SHA-256 digest of a file, read in chunks."""
+def sha256_of(path: PathLike, progress: Callable[[float], None] | None = None) -> str:
+    """Hex SHA-256 digest of a file, read in chunks.
+
+    progress, when given, is called with the fraction of the file read, at most about a
+    hundred times, so that hashing a very large recording shows movement.
+    """
     digest = hashlib.sha256()
+    total = os.path.getsize(path)
+    step = max(_DIGEST_CHUNK_BYTES, total // 100)
+    done = 0
+    next_report = step
     with open(path, "rb") as handle:
         while True:
             chunk = handle.read(_DIGEST_CHUNK_BYTES)
             if not chunk:
                 break
             digest.update(chunk)
+            done += len(chunk)
+            if progress is not None and total > 0 and done >= next_report:
+                progress(min(1.0, done / total))
+                next_report += step
+    if progress is not None:
+        progress(1.0)
     return digest.hexdigest()
 
 

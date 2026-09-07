@@ -61,11 +61,17 @@ yet done with progress per file. Nothing in the package reaches the network.
 
 ```
 python -m twinscribe app [recordings or folders]
-python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER]
+python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto]
 python -m twinscribe check [--verify]
 python -m twinscribe export <transcript.json>
 python -m twinscribe verify <review.json>
 ```
+
+In a checkout with the project's virtual environment beside it, `twinscribe.cmd` runs the same
+command line (`twinscribe.cmd run <folder>` transcribes with progress in the console; with no
+arguments it opens the window), and `twinscribe-app.cmd` opens the window without a console.
+A window started without a console writes anything it would have printed, and any unhandled
+error, to `twinscribe.log` under the application home.
 
 Models live in one folder (`TWINSCRIBE_MODELS`, or `models` beside the package);
 `tools/fetch_models.py` fetches them from the sources the catalogue names and pins their

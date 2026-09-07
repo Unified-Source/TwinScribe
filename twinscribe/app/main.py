@@ -1335,8 +1335,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+LOG_FILE = "twinscribe.log"
+
+
+def attach_log(home: Path | None = None) -> Path | None:
+    """Give a windowed start somewhere to write.
+
+    Started without a console (pythonw, a double-clicked launcher), the process has no
+    standard streams, and any library that prints would raise. Both streams are then pointed
+    at a log file under the application home, and unhandled exceptions are written there
+    too. With a console nothing changes. Returns the log path when one was attached.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return None
+    try:
+        from twinscribe.paths import app_home
+
+        path = (home if home is not None else app_home()) / LOG_FILE
+        handle = open(path, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        return None
+    if sys.stdout is None:
+        sys.stdout = handle
+    if sys.stderr is None:
+        sys.stderr = handle
+
+    def hook(kind, value, trace) -> None:
+        import traceback
+
+        handle.write("".join(traceback.format_exception(kind, value, trace)))
+        handle.flush()
+
+    sys.excepthook = hook
+    handle.write(f"--- {APP_TITLE} {__version__} started without a console\n")
+    return path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the window; returns the process exit status."""
+    attach_log()
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     settings = load_settings()
     if args.dark:
