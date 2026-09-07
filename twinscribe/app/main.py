@@ -371,7 +371,8 @@ class MainWindow(QMainWindow):
 
         self.transcribe_button = QPushButton("Transcribe", top)
         self.transcribe_button.setObjectName("primary")
-        self.transcribe_button.clicked.connect(self.start_transcription)
+        # The clicked signal carries a checked flag; it must not reach the rows argument.
+        self.transcribe_button.clicked.connect(lambda _checked=False: self.start_transcription())
         self.stop_button = QPushButton("Stop", top)
         self.stop_button.clicked.connect(self.stop_transcription)
         self.stop_button.hide()
@@ -914,6 +915,8 @@ class MainWindow(QMainWindow):
 
     def start_transcription(self, rows: Sequence[int] | None = None) -> bool:
         """Queue every pending recording (or the given rows) and run the pipeline in a thread."""
+        if isinstance(rows, bool):
+            rows = None
         if self.worker is not None and self.worker.isRunning():
             self.set_status("A batch is already running.")
             return False
