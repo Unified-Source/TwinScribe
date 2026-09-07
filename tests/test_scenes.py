@@ -150,7 +150,7 @@ def _recording() -> tuple[np.ndarray, list[Segment]]:
     paint(45.0, 50.0, -20.0)         # speech
     utterances = [
         utterance(5.0, 10.0, "good afternoon everyone thank you"),
-        utterance(26.0, 31.0, "before we start a question"),
+        utterance(26.0, 31.0, "there is a question about the culvert"),
         utterance(31.5, 36.0, "la la la la"),
         utterance(45.0, 50.0, "let us move on"),
     ]
