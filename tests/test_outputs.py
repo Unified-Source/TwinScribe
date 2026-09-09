@@ -302,3 +302,21 @@ def test_render_all_writes_three_files(tmp_path: Path) -> None:
     assert (tmp_path / "c.txt").read_text(encoding="utf-8").startswith("call.wav\n")
     assert zipfile.is_zipfile(tmp_path / "c.docx")
     assert (tmp_path / "c.srt").read_text(encoding="utf-8").startswith("1\n00:00:00,500")
+
+
+def test_listener_lines_render_as_the_listeners() -> None:
+    from twinscribe.amend import apply_resolutions
+    from twinscribe.outputs.plain_text import render_text
+    from twinscribe.outputs.word_docx import document_xml
+
+    doc = make_document("call.wav")
+    revised = apply_resolutions(doc, [{"status": "text", "note": "yes I am here"}, {"status": "nothing", "note": ""}])
+    text = render_text(revised)
+    assert "Reviewed by a listener: 2 spans checked; 1 carries words typed after listening, shown as heard on review." in text
+    assert "(heard on review): yes I am here" in text
+    xml = document_xml(revised)
+    assert "(heard on review)" in xml and "Reviewed by a listener" in xml
+    # The listener's words are the italic run that follows the suffix.
+    assert '<w:i/>' in xml.split("yes I am here")[0].rsplit("<w:r>", 1)[-1]
+    # A document without an applied review renders as before.
+    assert "heard on review" not in render_text(doc) and "Reviewed by" not in document_xml(doc)

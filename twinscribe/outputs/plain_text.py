@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from twinscribe.labelling import UNLABELLED_NAME
+from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, reviewed_note
 from twinscribe.outputs.transcript_doc import (
     approximate_word_times,
     clock,
@@ -107,6 +108,9 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
         )
     else:
         lines.append("Review list: no span where speech may be missing was found.")
+    reviewed = reviewed_note(doc)
+    if reviewed:
+        lines.append(reviewed)
     summary = non_speech_summary(doc)
     if summary:
         lines.append(f"Without speech: {summary}; marked in the transcript.")
@@ -146,6 +150,8 @@ def transcript_lines(doc: Mapping[str, Any]) -> list[str]:
         name = names.get(label, label) if label is not None else UNLABELLED_NAME
         if out and label != previous:
             out.append("")
+        if entry.get("src") == SOURCE_LISTENER:
+            name = f"{name} ({LISTENER_SUFFIX})"
         out.append(f"[{clock(start)}] {name}: {entry.get('text', '')}")
         previous = label
     return out
