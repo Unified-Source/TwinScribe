@@ -364,6 +364,19 @@ def test_history_and_export_dialogs_open(app: QApplication, tmp_path: Path, home
     dispose(app, window)
 
 
+def test_pane_shows_listener_lines_as_such(app: QApplication, tmp_path: Path) -> None:
+    from twinscribe.amend import apply_resolutions
+    from twinscribe.app.transcript_view import TranscriptView
+
+    revised = apply_resolutions(make_document("call.wav"), [{"status": "text", "note": "yes I am here"}, {"status": "open", "note": ""}])
+    view = TranscriptView(None, theme_for(False))
+    view.set_document(revised)
+    shown = view.toPlainText()
+    assert "(heard on review)  yes I am here" in shown
+    assert view.line_count() == len(revised["lines"])
+    view.deleteLater()
+
+
 def test_job_card_shows_progress_and_provisional_lines(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
     from twinscribe.engines.base import Segment
     from twinscribe.pipeline import Progress

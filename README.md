@@ -127,8 +127,11 @@ and the speaker models ran on the processor.
 *Verifying.* The Review button opens the verification screen for the recording's review list:
 a bar of the whole recording with every mark on it, the list of marks, the published
 transcript either side of each gap, and what the second engine heard there as a hint of what
-to listen for. Three actions per mark: play the span, nothing was said, type what was said.
-A session file records every resolution.
+to listen for. Three actions per mark: play the span, nothing was said, type what was said (the prompt starts
+from what the second engine heard, to be edited to what was actually said). A session file
+records every resolution, and Apply to transcript puts the typed words into the transcript as
+the listener's, marked "heard on review" in the text, the Word document and the window, and
+writes the outputs again; the engine's words are never altered.
 
 To do the same: fetch the models once, open the window on a folder, press Transcribe.
 

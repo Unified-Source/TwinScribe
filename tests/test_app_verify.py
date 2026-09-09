@@ -369,7 +369,8 @@ def test_t_with_value_resolves_with_text(window: verify.VerifyWindow) -> None:
 
     window.text_prompt = prompt
     QTest.keyClick(window.mark_list, Qt.Key.Key_T)
-    assert seen == [""]
+    # The prompt starts from what the second engine heard when there is no earlier note.
+    assert seen == [window.review.marks[0].detector_text] == ["yes I am here"]
     assert window.resolutions[0].status == "text"
     assert window.resolutions[0].note == "yes I am here"
     assert window.current_index == 1
@@ -530,3 +531,56 @@ def test_parser_options(tmp_path: Path) -> None:
     assert args.dark is True
     assert args.shot == Path("out.png")
     assert args.review_set == tmp_path / "r.json"
+
+
+def test_apply_puts_the_listener_words_into_the_transcript(app: QApplication, tmp_path: Path) -> None:
+    from tests._fixtures import detector_transcript, make_document, published_transcript
+    from twinscribe.outputs import render_all
+    from twinscribe.outputs.transcript_doc import load_document, write_document
+    from twinscribe.pipeline import output_paths
+    from twinscribe.review import build_review, review_set, write_review_set
+
+    doc = make_document("call.wav")
+    paths = output_paths(tmp_path / "call.wav")
+    write_document(doc, paths.transcript)
+    render_all(doc, paths.text, paths.docx, paths.subtitles)
+    published, detector = published_transcript(), detector_transcript()
+    write_review_set(review_set(published, detector, "call.wav", build_review(published.words, detector.words, 30.0)), paths.review)
+    review = verify.load_review_set(paths.review)
+    assert len(review.marks) == len(doc["marks"]) == 2
+    window = verify.VerifyWindow(review, paths.review, theme_for(False), author="A Person")
+    assert window.transcript_path() == paths.transcript
+    offered: list[str] = []
+
+    def prompt(earlier: str) -> str:
+        offered.append(earlier)
+        return "yes I am here"
+
+    window.text_prompt = prompt
+    window.select_mark(0)
+    window.resolve_text()
+    # The prompt started from what the second engine heard in the span.
+    assert offered == [review.marks[0].detector_text] and review.marks[0].detector_text
+    assert window.handle_key(Qt.Key.Key_A) is True
+    revised = load_document(paths.transcript)
+    assert revised["review_applied"]["text"] == 1 and revised["review_applied"]["open"] == 1
+    listener = [line for line in revised["lines"] if line.get("src") == "listener"]
+    assert len(listener) == 1 and listener[0]["text"] == "yes I am here"
+    assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
+    assert "Transcript updated: 1 span with the listener's words, 0 silent, 1 still open" in window.status_label.text()
+    # Applying again after a change replaces rather than accumulates.
+    window.text_prompt = lambda earlier: "yes I am still here"
+    window.select_mark(0)
+    window.resolve_text()
+    assert window.apply_to_transcript() is not None
+    again = [line for line in load_document(paths.transcript)["lines"] if line.get("src") == "listener"]
+    assert len(again) == 1 and again[0]["text"] == "yes I am still here"
+    window.close()
+    # Without a transcript document beside the review set nothing is applied.
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    lonely = alone / "call.review.json"
+    write_review_set(review_set(published, detector, "call.wav", build_review(published.words, detector.words, 30.0)), lonely)
+    window = verify.VerifyWindow(verify.load_review_set(lonely), lonely, theme_for(False))
+    assert window.apply_to_transcript() is None and "No transcript document" in window.status_label.text()
+    window.close()
