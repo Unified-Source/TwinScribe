@@ -97,9 +97,9 @@ The recordings in these pictures are the first two chapters of a public-domain a
 15 min 22 s, mono MP3 at 22 kHz as downloaded. They were dropped into the window as they came;
 nothing was converted by hand.
 
-![The window while a recording is being transcribed](docs/images/window-transcribing.png)
+![The window during a live transcription: the stage strip advancing and the published engine's lines arriving](docs/images/live-transcribe.gif)
 
-*Transcribing.* The library on the left holds every recording added, with its state. The
+*Transcribing* (23 seconds of a real run; the same clip as an [MP4](docs/media/live-transcribe.mp4)). The library on the left holds every recording added, with its state. The
 selected recording shows its job card while it runs: the stage strip (reading the file,
 loading both engines, transcribing and checking at the same time, marking silence and noise,
 labelling speakers, writing the outputs), the elapsed time and the time left, a heartbeat,
