@@ -365,7 +365,8 @@ def mark_row_text(index: int, mark: ReviewMark, resolved: bool) -> str:
 
 
 FOOTER_TEXT = ("Space play or pause   |   J next   |   K previous   |   Enter play span   |   "
-               "N nothing was said   |   T type what was said   |   Left and Right nudge 5 s")
+               "N nothing was said   |   T type what was said   |   A apply to transcript   |   "
+               "Left and Right nudge 5 s")
 
 
 # ----- the window ----------------------------------------------------------------------
@@ -379,10 +380,11 @@ class VerifyWindow(QMainWindow):
     """
 
     def __init__(self, review: ReviewSet, review_path: Path, theme: Theme | None = None,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, author: str = "") -> None:
         super().__init__(parent)
         self.review = review
         self.review_path = Path(review_path)
+        self.author = author
         self.session_path = session_path_for(self.review_path)
         self.theme = theme if theme is not None else theme_for(False)
         self.setWindowIcon(app_icon(self.theme.dark))
@@ -488,13 +490,18 @@ class VerifyWindow(QMainWindow):
         self.play_button = QPushButton("Play this span (Enter)", right)
         self.nothing_button = QPushButton("Nothing was said (N)", right)
         self.text_button = QPushButton("Type what was said (T)", right)
-        for button in (self.play_button, self.nothing_button, self.text_button):
+        self.apply_button = QPushButton("Apply to transcript (A)", right)
+        self.apply_button.setToolTip(
+            "Put the typed words into the transcript as the listener's, marked as such, and write the outputs again"
+        )
+        for button in (self.play_button, self.nothing_button, self.text_button, self.apply_button):
             button.setAutoDefault(False)
             button.setDefault(False)
             buttons.addWidget(button)
         self.play_button.clicked.connect(self.play_span)
         self.nothing_button.clicked.connect(self.resolve_nothing)
         self.text_button.clicked.connect(self.resolve_text)
+        self.apply_button.clicked.connect(self.apply_to_transcript)
         right_layout.addLayout(buttons)
 
         self.status_label = QLabel("", right)
@@ -737,7 +744,9 @@ class VerifyWindow(QMainWindow):
         """T: prompt for what was said (pre-filled with any earlier note), then advance."""
         if self._current is None:
             return
-        earlier = self.resolutions[self._current].note
+        # The earlier note, else what the second engine heard, so the listener edits rather
+        # than types; whatever is accepted is the listener's and is marked so.
+        earlier = self.resolutions[self._current].note or self.review.marks[self._current].detector_text
         typed = self.text_prompt(earlier)
         if typed is None:
             self.set_status("Cancelled; the mark is unchanged.")
@@ -745,9 +754,10 @@ class VerifyWindow(QMainWindow):
         self._resolve(self._current, STATUS_TEXT, typed)
 
     def _default_text_prompt(self, earlier: str) -> str | None:
-        typed, accepted = QInputDialog.getText(
-            self, "Type what was said", "What was said in this span:",
-            QLineEdit.EchoMode.Normal, earlier)
+        typed, accepted = QInputDialog.getMultiLineText(
+            self, "Type what was said",
+            "What was said in this span. The second engine's hint is only a start; what is accepted here is recorded as yours:",
+            earlier)
         return typed if accepted else None
 
     def _resolve(self, index: int, status: str, note: str) -> None:
@@ -766,6 +776,42 @@ class VerifyWindow(QMainWindow):
             self.set_status(f"Mark {index + 1}: \"{note}\".")
         if index + 1 < len(self.review.marks):
             self.select_mark(index + 1)
+
+    def transcript_path(self) -> Path:
+        """The transcript document beside the review set, named by the same stem."""
+        name = self.review_path.name
+        stem = name[: -len(".review.json")] if name.endswith(".review.json") else self.review_path.stem
+        return self.review_path.with_name(f"{stem}.transcript.json")
+
+    def apply_to_transcript(self) -> dict | None:
+        """A: write the session, put the resolutions into the transcript document beside the
+        review set, and render the text, Word and subtitle outputs again. Returns the revised
+        document, or None with the reason in the status line."""
+        from twinscribe.amend import apply_session
+
+        if not self.review.marks:
+            self.set_status("Nothing to apply: the review list is empty.")
+            return None
+        target = self.transcript_path()
+        if not target.is_file():
+            self.set_status(f"No transcript document beside the review set ({target.name}); nothing applied.")
+            return None
+        self._write_session()
+        try:
+            revised = apply_session(target, self.session_path, author=self.author)
+        except (OSError, ValueError) as exc:
+            self.set_status(f"Could not apply the review: {exc}")
+            return None
+        applied = revised.get("review_applied") or {}
+        with_words = int(applied.get("text", 0))
+        silent = int(applied.get("nothing", 0))
+        open_count = int(applied.get("open", 0))
+        noun = "span" if with_words == 1 else "spans"
+        self.set_status(
+            f"Transcript updated: {with_words} {noun} with the listener's words, {silent} silent, "
+            f"{open_count} still open; the text, Word and subtitle files were written again."
+        )
+        return revised
 
     def _write_session(self) -> None:
         try:
@@ -798,6 +844,8 @@ class VerifyWindow(QMainWindow):
             self.resolve_nothing()
         elif key == Qt.Key.Key_T:
             self.resolve_text()
+        elif key == Qt.Key.Key_A:
+            self.apply_to_transcript()
         elif key == Qt.Key.Key_Left:
             self.nudge(-NUDGE_S)
         elif key == Qt.Key.Key_Right:

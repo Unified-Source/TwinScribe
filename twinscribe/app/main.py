@@ -896,7 +896,7 @@ class MainWindow(QMainWindow):
             return
         if self.player is not None:
             self.player.pause()
-        window = VerifyWindow(review, review_path, self.theme, parent=None)
+        window = VerifyWindow(review, review_path, self.theme, parent=None, author=self.settings.author)
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         window.resize(1120, 740)
         window.destroyed.connect(lambda *_: self._reload_session())
