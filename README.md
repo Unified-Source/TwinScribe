@@ -2,10 +2,12 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
-  <img src="docs/images/logo.png" height="96" alt="TwinScribe: two facing panels carrying waveforms, the published engine's dark and the checking engine's light">
+  <img src="docs/images/logo.png" height="104" alt="TwinScribe: two facing panels carrying waveforms, the published engine's dark and the checking engine's light. Two engines. A clearer record.">
 </picture>
 
 [![tests](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml/badge.svg)](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml)
+
+Windows build: [`twinscribe-win64.zip` on the Releases page](https://github.com/Unified-Source/TwinScribe/releases); the models are fetched on first start.
 
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.
@@ -153,13 +155,8 @@ python -m twinscribe app <folder with the recordings>
 Three ways, from the least effort to the most. All three run offline once the models are in
 place; none needs administrator rights.
 
-1. **The portable folder** (Windows): unzip `twinscribe-portable.zip` anywhere and double-click
-   `twinscribe-app.cmd`. The folder holds its own interpreter, every library, the decoder, the
-   models of the Standard level and a `home` folder for settings and records, so nothing is
-   installed and two copies never share state. `twinscribe.cmd run <folder>` is the command
-   line. `tools/build_portable.py` assembles it, as described in
-   [docs/Portable_Layout.md](docs/Portable_Layout.md).
-2. **The executables** (Windows): unzip `twinscribe-win64.zip` and double-click
+1. **The executables** (Windows): download `twinscribe-win64.zip` from the
+   [Releases](https://github.com/Unified-Source/TwinScribe/releases) page, unzip it and double-click
    `twinscribe\twinscribe-app.exe`; `twinscribe\twinscribe.exe` is the command line. The
    folder carries every library and the decoder. On first start the window offers to fetch the
    models of the Standard level (about 2.4 GB) from the sources the catalogue names into a
@@ -168,6 +165,13 @@ place; none needs administrator rights.
    by `TWINSCRIBE_MODELS`, or chosen in Settings. A `home` folder beside them makes the copy
    portable. The executables are not signed, so Windows may warn that they come from an unknown
    publisher. `tools/build_exe.py` builds the folder with PyInstaller from `tools/twinscribe.spec`.
+2. **The portable folder** (Windows): assembled from a checkout by `tools/build_portable.py`, as
+   described in [docs/Portable_Layout.md](docs/Portable_Layout.md), because it carries the models
+   and is larger than a release asset may be. Unzip it anywhere and double-click
+   `twinscribe-app.cmd`. The folder holds its own interpreter, every library, the decoder, the
+   models of the Standard level and a `home` folder for settings and records, so nothing is
+   installed and two copies never share state. `twinscribe.cmd run <folder>` is the command
+   line.
 3. **From source** (Windows, Linux, macOS): Python 3.11 or later, then
 
    ```
