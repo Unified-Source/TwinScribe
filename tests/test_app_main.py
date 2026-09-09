@@ -160,7 +160,7 @@ def test_window_starts_empty(app: QApplication, tmp_path: Path, home: Path) -> N
     assert window.library_model.rowCount() == 0
     assert window.library_stack.currentIndex() == 1
     assert not window.transcribe_button.isEnabled()
-    assert window.quality_box.count() == 3 and window.quality_box.currentData() == "standard"
+    assert window.quality_box.count() == 4 and window.quality_box.currentData() == "standard"
     assert not window.transcript_view.document_loaded()
     assert not window.player_bar.play_button.isEnabled()
     dispose(app, window)
@@ -491,7 +491,7 @@ def test_levels_follow_the_usable_backends(app: QApplication, tmp_path: Path, ho
     assert none.quality_box.count() == 1 and "No detector library" in none.quality_box.toolTip()
     dispose(app, none)
     onnx = make_window(app, tmp_path, plan=make_plan_for(ct2=False))
-    assert onnx.quality_box.count() == 3
+    assert onnx.quality_box.count() == 4
     dispose(app, onnx)
 
 

@@ -104,3 +104,36 @@ speed pool is empty by the report's rule and nothing here is a speed figure.
   conversion is the upstream repository's `main` at fetch time, its model file's digest is in
   `models.lock.json`, and the design records no digest for its own. Review list on this arm:
   63 marks, 62 on speech, 19.3 per cent of the audio (the design: 62, 61, 18).
+
+## Targeted checking: the Laptop level on the telephone set, processor only
+
+Measured on 2026-09-09 on a desktop processor (16 cores, int8) with the display and a few
+background processes running, which the load verdict counts as other load; both arms ran in
+the same pass, one after the other, on the 24 pinned telephone calls (1,446 s of audio).
+
+- **Why the naive form saved nothing.** The publisher-silent spans of at least 0.8 s cover
+  52 per cent of the telephone audio, and widened by a one-second margin the windows cover
+  83 per cent. The full check already skips silence with the library's voice filter, so
+  handing the windows to the library as clips decoded more silence than the full check did,
+  and each clip cost an encoder pass of its own: 773 s against the full check's 575 s in a
+  contended first pass.
+- **What ships.** The windows are narrowed to the speech the library's own voice detector
+  finds inside them (the same settings as the full check), the pieces are joined into one
+  stream so the model reads them in its usual windows, and every time is put back on the
+  recording's clock. Speech inside the windows is 55 per cent of the audio, in 256 clips
+  over the 24 calls.
+- **Time.** Full check 398 s of decode (3.6 times real time); targeted
+  274 s (5.3 times), a saving of 31 per cent of the checker's decode time
+  at the one-second margin. With a half-second margin the windows cover 71 per cent and the speech inside 43 per cent, the decode takes 241 s (6.0 times real time, a 39 per cent saving), and the review list gains six marks, three of them off speech (69 marks, 66 on speech, 172 covered, 19.8 per cent to review); the shipped margin stays at one second, the value the precision above was measured at, and the bench's `--checking-margin` option measures any other.
+- **The review list is unchanged in quality.** Full check: 63 marks, 62 on speech, 167 of the
+  254 dropped words covered (66 per cent), 19.3 per cent of the audio to review. Targeted:
+  60 marks, 59 on speech, 172 of 254 covered (68 per cent), 18.2 per cent to review. The
+  targeted check finds slightly more of what the publisher dropped, because the narrowed
+  stream gives the checker the speech round the gaps without the silence between.
+- **End to end on the processor.** One telephone call of 51 s: Standard 28 s, Laptop 24 s. The 654 s audiobook chapter: Standard 251 s, Laptop 178 s, 29 per cent less, with 45 review marks against 42. The Laptop level runs the engines one after the other, the publisher first, where Standard runs them side by side, so the end-to-end saving is smaller than the checker's own.
+- **Where the saving is larger.** The saving grows with the share of a recording the publisher
+  leaves silent for less than the checker's window; on continuous single-speaker reading it is
+  29 per cent of the whole run on the chapter against 14 per cent on the telephone call, where the two-party turn-taking leaves the publisher silent for half the audio and the voice detector finds speech in most of that.
+- **Not done.** No arm on the meeting set: an hour of meeting audio on the processor was not
+  worth the wait for a level meant for telephone material. The ONNX checker has no clip
+  path, so on that backend the Laptop level decodes everything, as its record says.

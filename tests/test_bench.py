@@ -430,3 +430,17 @@ def test_report_renders_and_counts_contended_rows(tmp_path: Path) -> None:
 def test_corpora_default_root_honours_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv(corpora.CORPORA_ENV, str(tmp_path))
     assert corpora.default_corpora_root() == tmp_path
+
+
+def test_bench_has_a_targeted_checking_arm() -> None:
+    import importlib.util
+    import sys
+    from pathlib import Path as _Path
+
+    spec = importlib.util.spec_from_file_location("bench_tool", _Path(__file__).resolve().parent.parent / "tools" / "bench.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("bench_tool", module)
+    spec.loader.exec_module(module)
+    assert "whisper-turbo-gaps" in module.ALL_VARIANTS and "review-gaps" in module.ALL_VARIANTS
+    assert module.TRANSCRIPT_VARIANTS["whisper-turbo-gaps"] == module.KEY_WHISPER_TURBO
+    assert module.ALL_VARIANTS.index("whisper-turbo-gaps") < module.ALL_VARIANTS.index("review-gaps")

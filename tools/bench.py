@@ -40,6 +40,8 @@ from twinscribe.models import (  # noqa: E402
     KEY_WHISPER_TURBO,
     find_models,
 )
+from twinscribe.profiles import ReviewSettings  # noqa: E402
+from twinscribe.review import checking_windows  # noqa: E402
 from twinscribe.runrecord import machine_facts, utc_now, write_json_atomic  # noqa: E402
 
 RESULTS_SCHEMA = "twinscribe.bench.v1"
@@ -54,16 +56,20 @@ VARIANT_LARGE = "whisper-large"
 VARIANT_SPEAKERS = "speakers"
 VARIANT_SPEAKERS_COUNT = "speakers-count"
 VARIANT_REVIEW = "review"
+VARIANT_TURBO_GAPS = "whisper-turbo-gaps"
+VARIANT_REVIEW_GAPS = "review-gaps"
+CHECKING_MARGIN_S = 1.0
 
 TRANSCRIPT_VARIANTS: dict[str, str] = {
     VARIANT_TURBO: KEY_WHISPER_TURBO,
     VARIANT_DISTIL: KEY_WHISPER_DISTIL,
     VARIANT_LARGE: KEY_WHISPER_LARGE,
+    VARIANT_TURBO_GAPS: KEY_WHISPER_TURBO,
 }
 DEFAULT_VARIANTS: tuple[str, ...] = (
     VARIANT_PARAKEET, VARIANT_TURBO, VARIANT_DISTIL, VARIANT_SPEAKERS, VARIANT_SPEAKERS_COUNT, VARIANT_REVIEW,
 )
-ALL_VARIANTS: tuple[str, ...] = DEFAULT_VARIANTS[:3] + (VARIANT_LARGE,) + DEFAULT_VARIANTS[3:]
+ALL_VARIANTS: tuple[str, ...] = DEFAULT_VARIANTS[:3] + (VARIANT_LARGE, VARIANT_TURBO_GAPS) + DEFAULT_VARIANTS[3:] + (VARIANT_REVIEW_GAPS,)
 
 
 def _words_to_dicts(words: list[Word]) -> list[dict[str, Any]]:
@@ -115,7 +121,8 @@ def _diarization_record(result: Diarization, verdict: dict[str, Any]) -> dict[st
 class Runner:
     """Runs variants on items, caching every engine output as JSON under the output folder."""
 
-    def __init__(self, models: Any, plan: Any, out: Path, threads: int | None, rescore: bool) -> None:
+    def __init__(self, models: Any, plan: Any, out: Path, threads: int | None, rescore: bool, checking_margin_s: float = CHECKING_MARGIN_S) -> None:
+        self.checking_margin_s = checking_margin_s
         self.models = models
         self.plan = plan
         self.out = out
@@ -163,10 +170,21 @@ class Runner:
             return None
         from twinscribe.engines import whisper_ct2
 
+        clips = None
+        if variant == VARIANT_TURBO_GAPS:
+            # The checker decodes only where the publisher fell silent; the publisher's record must exist.
+            publisher = self._cached(item, VARIANT_PARAKEET)
+            if publisher is None:
+                print(f"    {variant}: the publisher has not run for this item; skipped")
+                return None
+            clips = checking_windows(
+                _words_from_dicts(publisher["words"]), float(publisher["timing"]["audio_s"]), ReviewSettings().min_silence_s, self.checking_margin_s,
+            )
         before = load.snapshot()
         transcript = whisper_ct2.transcribe(
             item.wav, self.models.path(key), DETECTOR_PRESET, threads=self.threads,
             device=placement.device, compute_type=placement.compute_type or "auto", device_index=placement.index,
+            clips=clips,
         )
         return self._store(item, variant, _transcript_record(transcript, _verdict_dict(before, load.snapshot())))
 
@@ -207,6 +225,14 @@ def score_item(item: Item, records: dict[str, dict[str, Any]], variants: tuple[s
             "engine": {"publisher": VARIANT_PARAKEET, "detector": VARIANT_TURBO},
             "scores": review_scores(item.reference, published, detector),
         }
+    if VARIANT_REVIEW_GAPS in variants and records.get(VARIANT_PARAKEET) and records.get(VARIANT_TURBO_GAPS):
+        published = _words_from_dicts(records[VARIANT_PARAKEET]["words"])
+        detector = _words_from_dicts(records[VARIANT_TURBO_GAPS]["words"])
+        out[VARIANT_REVIEW_GAPS] = {
+            "kind": KIND_REVIEW,
+            "engine": {"publisher": VARIANT_PARAKEET, "detector": VARIANT_TURBO_GAPS},
+            "scores": review_scores(item.reference, published, detector),
+        }
     return out
 
 
@@ -227,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default=DEVICE_AUTO, choices=list(PREFERENCES))
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--rescore", action="store_true", help="score cached engine outputs only; run nothing")
+    parser.add_argument("--checking-margin", type=float, default=CHECKING_MARGIN_S, help="context margin in seconds round the checking windows of the targeted arm")
     args = parser.parse_args(argv)
 
     store = find_corpora(args.corpora)
@@ -244,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     out: Path = args.out
     work = args.work if args.work is not None else out / "work"
     out.mkdir(parents=True, exist_ok=True)
-    runner = Runner(models, plan, out, args.threads, args.rescore)
+    runner = Runner(models, plan, out, args.threads, args.rescore, args.checking_margin)
 
     results: dict[str, Any] = {
         "schema": RESULTS_SCHEMA,

@@ -22,6 +22,8 @@ from twinscribe.models import (
     find_models,
 )
 from twinscribe.profiles import (
+    CHECK_EVERYWHERE,
+    CHECK_GAPS,
     DEFAULT_PROFILE,
     PROFILES,
     ModelsMissing,
@@ -35,8 +37,8 @@ from twinscribe.profiles import (
 )
 
 
-def test_profiles_are_the_three_levels() -> None:
-    assert [p.name for p in PROFILES] == ["quick", "standard", "careful"]
+def test_profiles_are_the_four_levels() -> None:
+    assert [p.name for p in PROFILES] == ["quick", "standard", "careful", "laptop"]
     assert DEFAULT_PROFILE == "standard"
     standard = profile_for("standard")
     assert standard.publisher == KEY_PARAKEET_V2 and standard.detector == KEY_WHISPER_TURBO
@@ -48,6 +50,10 @@ def test_profiles_are_the_three_levels() -> None:
         assert set(profile.model_keys) >= {KEY_SILERO_VAD, KEY_SEGMENTATION, KEY_EMBEDDING}
         assert set(profile.required_keys) == {profile.publisher, KEY_SILERO_VAD, KEY_SEGMENTATION, KEY_EMBEDDING}
         assert profile.review.min_silence_s == 0.8 and profile.review.min_detector_words == 2 and profile.review.pad_s == 0.4
+    laptop = profile_for("laptop")
+    assert laptop.checking == CHECK_GAPS and laptop.checking_margin_s == 1.0
+    assert laptop.detectors == standard.detectors and laptop.publisher == standard.publisher and laptop.model_keys == standard.model_keys
+    assert all(p.checking == CHECK_EVERYWHERE for p in PROFILES if p.name != "laptop")
 
 
 def test_profile_presets_exist_and_detector_keeps_word_times() -> None:
@@ -76,7 +82,7 @@ def test_availability_follows_the_store(tmp_path: Path) -> None:
     assert set(missing_models(profile_for("standard"), empty)) == set(profile_for("standard").model_keys)
 
     full = make_models(tmp_path / "full")
-    assert [p.name for p in available_profiles(full)] == ["quick", "standard", "careful"]
+    assert [p.name for p in available_profiles(full)] == ["quick", "standard", "careful", "laptop"]
     assert choose_profile("careful", full).name == "careful"
     assert select("standard", full).detector == KEY_WHISPER_TURBO and select("standard", full).backend == "ct2"
 
@@ -84,7 +90,7 @@ def test_availability_follows_the_store(tmp_path: Path) -> None:
     make_models(partial_root)
     _remove(partial_root, KEY_WHISPER_DISTIL, KEY_WHISPER_LARGE, KEY_WHISPER_DISTIL_ONNX, KEY_WHISPER_LARGE_ONNX)
     partial = find_models(partial_root)
-    assert [p.name for p in available_profiles(partial)] == ["standard"]
+    assert [p.name for p in available_profiles(partial)] == ["standard", "laptop"]
     with pytest.raises(ModelsMissing) as excinfo:
         choose_profile("quick", partial)
     assert str(partial_root / KEY_WHISPER_DISTIL) in str(excinfo.value)
@@ -97,14 +103,14 @@ def test_detector_falls_back_to_the_onnx_export_without_ctranslate2(tmp_path: Pa
     assert select("standard", full, onnx_only).detector == KEY_WHISPER_TURBO_ONNX
     assert select("standard", full, onnx_only).backend == "onnx"
     assert select("quick", full, onnx_only).detector == KEY_WHISPER_DISTIL_ONNX
-    assert [p.name for p in available_profiles(full, onnx_only)] == ["quick", "standard", "careful"]
+    assert [p.name for p in available_profiles(full, onnx_only)] == ["quick", "standard", "careful", "laptop"]
     assert available_profiles(full, {"ct2": False, "onnx": False}) == []
 
     root = tmp_path / "ct2_models_only"
     make_models(root)
     _remove(root, KEY_WHISPER_TURBO_ONNX, KEY_WHISPER_DISTIL_ONNX, KEY_WHISPER_LARGE_ONNX)
     store = find_models(root)
-    assert [p.name for p in available_profiles(store, ct2_only)] == ["quick", "standard", "careful"]
+    assert [p.name for p in available_profiles(store, ct2_only)] == ["quick", "standard", "careful", "laptop"]
     assert available_profiles(store, onnx_only) == []
     with pytest.raises(ModelsMissing) as excinfo:
         select("standard", store, onnx_only)

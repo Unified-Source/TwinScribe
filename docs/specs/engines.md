@@ -121,3 +121,15 @@ lock for the whole of a labelling call, which runs for minutes on a processor, s
 whose thread shares the process stops answering until it ends. The function and its arguments
 travel by pickling; an exception in the child is raised again in the caller. The frozen
 executables call `multiprocessing.freeze_support()` first thing, which the child start needs.
+
+## 9. Clips for the checker
+
+`whisper_ct2.transcribe` takes `clips`, a list of (start, end) seconds. When given, the spans
+are first narrowed to the speech the library's own voice detector finds inside them, with
+the settings the full check uses to skip silence (`speech_spans`, `speech_within`), and only
+that speech is decoded, through the library's clip timestamps; the library's voice filter is
+dropped, which it would ignore alongside clips in any case. Word times stay in the
+recording's own clock. An empty list, before or after narrowing, decodes nothing and loads no
+model. The transcript's extras record the windows given and the seconds they cover, and the
+clips decoded and theirs. The ONNX checker has no such argument, so a level that checks the
+gaps decodes everything on that backend.

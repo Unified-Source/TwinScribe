@@ -290,3 +290,12 @@ recall and the Jaccard error rate can be scored.
   rendered to the default device (a headset there) with the position advancing and no error.
   The box lists the outputs the multimedia library reports and follows its change signal;
   the test drives the box with made-up devices, since the offscreen platform reports none.
+
+## The Laptop level
+
+- Built on the owner's request after the checking phase ran long on a laptop. What it saves and
+  costs is measured in `bench.notes.md` (the telephone set, processor only): 31 per cent of the
+  checker's decode time at the shipped margin with the review list unchanged in quality, 29 per
+  cent of a whole run on the audiobook chapter and 14 per cent on a telephone call. The first
+  form, clips handed straight to the library, was slower than the full check; the shipped form
+  narrows the windows to speech and joins the pieces into one stream.

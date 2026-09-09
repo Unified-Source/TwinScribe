@@ -126,6 +126,34 @@ def _silent_spans(published: Iterable[Word], audio_s: float) -> list[tuple[float
     return spans
 
 
+def checking_windows(
+    published: Iterable[Word],
+    audio_s: float,
+    min_silence_s: float = 0.8,
+    margin_s: float = 1.0,
+) -> list[tuple[float, float]]:
+    """The spans a checker need decode when it checks only where the publisher fell silent:
+    every published-silent span of at least min_silence_s, widened by margin_s on both sides
+    for context, clamped to [0, audio_s], and merged where they touch or overlap. Leading and
+    trailing silence count, as in build_review."""
+    if min_silence_s < 0.0 or margin_s < 0.0:
+        raise ValueError("min_silence_s and margin_s must not be negative")
+    if audio_s <= 0.0:
+        return []
+    windows = [
+        (max(0.0, start - margin_s), min(audio_s, end + margin_s))
+        for start, end in _silent_spans(published, audio_s)
+        if end - start >= min_silence_s
+    ]
+    merged: list[tuple[float, float]] = []
+    for start, end in windows:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def build_review(
     published: list[Word],
     detector: list[Word],

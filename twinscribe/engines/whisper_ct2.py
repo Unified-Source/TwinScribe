@@ -12,10 +12,11 @@ import copy
 import importlib
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from twinscribe.audio import duration_s as wav_duration_s
 from twinscribe.engines.base import Segment, Transcript, Word, default_threads
 from twinscribe.engines.presets import WHISPER_PRESETS, resolve_preset
 
@@ -179,8 +180,78 @@ def _float_or_none(value: Any) -> float | None:
     return None if value is None else float(value)
 
 
-def transcribe(
-    audio_path: str | os.PathLike[str],
+def speech_within(windows: Sequence[tuple[float, float]], speech: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The parts of the windows that the speech spans cover, merged where they touch: what a
+    checker need decode when it checks windows but not the silence inside them."""
+    out: list[tuple[float, float]] = []
+    for window_start, window_end in sorted(windows):
+        for speech_start, speech_end in sorted(speech):
+            start, end = max(window_start, speech_start), min(window_end, speech_end)
+            if end <= start:
+                continue
+            if out and start <= out[-1][1]:
+                out[-1] = (out[-1][0], max(out[-1][1], end))
+            else:
+                out.append((start, end))
+    return out
+
+
+def speech_spans(samples: Any, vad_parameters: Mapping[str, Any] | None) -> list[tuple[float, float]]:
+    """The speech the library's voice detector finds in decoded 16 kHz samples, as (start, end)
+    seconds, with the same settings the full check uses to skip silence."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    chunks = get_speech_timestamps(samples, VadOptions(**dict(vad_parameters or {})), sampling_rate=16000)
+    return [(float(c["start"]) / 16000.0, float(c["end"]) / 16000.0) for c in chunks]
+
+
+def concatenate_clips(samples: Any, clips: Sequence[tuple[float, float]]) -> tuple[Any, list[tuple[float, float, float]]]:
+    """The clips of the samples joined into one stream, and for each piece its start in the
+    stream and its start and end in the recording, so times can be restored afterwards."""
+    import numpy as np
+
+    parts = []
+    pieces: list[tuple[float, float, float]] = []
+    cursor = 0.0
+    for start, end in clips:
+        first, last = int(round(start * 16000)), int(round(end * 16000))
+        part = samples[first:last]
+        if len(part) == 0:
+            continue
+        length = len(part) / 16000.0
+        pieces.append((cursor, first / 16000.0, first / 16000.0 + length))
+        parts.append(part)
+        cursor += length
+    stream = np.concatenate(parts).astype(np.float32) if parts else np.zeros(0, dtype=np.float32)
+    return stream, pieces
+
+
+def restore_time(pieces: Sequence[tuple[float, float, float]], t: float) -> float:
+    """A time in the concatenated stream mapped back to the recording."""
+    import bisect
+
+    if not pieces:
+        return float(t)
+    index = max(0, bisect.bisect_right([p[0] for p in pieces], t) - 1)
+    stream_start, clip_start, clip_end = pieces[index]
+    return min(clip_end, clip_start + max(0.0, t - stream_start))
+
+
+def restore_segment(segment: Segment, pieces: Sequence[tuple[float, float, float]]) -> Segment:
+    """A segment decoded from the stream with every time put back on the recording's clock."""
+    from dataclasses import replace
+
+    words = tuple(replace(w, start=restore_time(pieces, w.start), end=restore_time(pieces, w.end)) for w in segment.words)
+    return replace(segment, start=restore_time(pieces, segment.start), end=restore_time(pieces, segment.end), words=words)
+
+
+def stream_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    """The arguments of the library call for a stream of joined speech clips: no voice filter,
+    since the stream holds the speech the detector already chose."""
+    return {k: v for k, v in kwargs.items() if k not in ("vad_filter", "vad_parameters", "clip_timestamps")}
+
+
+def transcribe(    audio_path: str | os.PathLike[str],
     model_dir: str | os.PathLike[str],
     preset: str | Mapping[str, Any],
     threads: int | None = None,
@@ -189,6 +260,8 @@ def transcribe(
     compute_type: str = COMPUTE_TYPE,
     device_index: int = 0,
     on_segment: Callable[[Segment], None] | None = None,
+    clips: Sequence[tuple[float, float]] | None = None,
+    narrow: bool = True,
 ) -> Transcript:
     """Transcribe one file with a local CTranslate2 Whisper conversion.
 
@@ -202,7 +275,11 @@ def transcribe(
     caller can tell loading from decoding. on_segment, when given, receives each segment as it
     is decoded. device is "cpu" (the measured configuration, int8) or "cuda" with a compute
     type the device supports; the acceleration plan chooses them and they are recorded in the
-    transcript's settings.
+    transcript's settings. clips, when given, are the only spans of the audio decoded, as
+    (start, end) seconds: narrowed first to the speech the voice detector finds inside them
+    unless narrow is False, joined into one stream so the model reads them in its usual
+    windows, and every time put back on the recording's clock; an empty list, before or after
+    narrowing, decodes nothing and loads no model.
     """
     audio = Path(audio_path)
     if not audio.is_file():
@@ -220,6 +297,27 @@ def transcribe(
 
         register_cuda_libraries()
     faster_whisper = _import_faster_whisper()
+    windows: list[tuple[float, float]] | None = None
+    stream = None
+    pieces: list[tuple[float, float, float]] = []
+    if clips is not None:
+        windows = [(float(start), float(end)) for start, end in clips]
+        samples = faster_whisper.decode_audio(str(audio), sampling_rate=16000)
+        if narrow and windows:
+            clips = speech_within(windows, speech_spans(samples, settings.get("vad_parameters")))
+        stream, pieces = concatenate_clips(samples, clips)
+        clips = [(clip_start, clip_end) for _, clip_start, clip_end in pieces]
+        kwargs = stream_kwargs(kwargs)
+    if clips is not None and not clips:
+        if progress is not None:
+            progress(0.0)
+        return Transcript(
+            engine=ENGINE_NAME, model=directory.name, preset=preset_name, segments=(), audio_s=float(wav_duration_s(audio)),
+            load_s=0.0, transcribe_s=0.0, versions=library_versions(),
+            extras={"segments": 0, "words": 0, "threads": thread_count, "windows": len(windows or []),
+                    "windows_s": float(sum(end - start for start, end in (windows or []))), "clips": 0, "clipped_s": 0.0},
+            settings={"device": device, "device_index": int(device_index), "compute_type": compute_type},
+        )
 
     load_start = time.perf_counter()
     model = faster_whisper.WhisperModel(
@@ -235,16 +333,19 @@ def transcribe(
         progress(0.0)
 
     transcribe_start = time.perf_counter()
-    generator, info = model.transcribe(str(audio), **kwargs)
-    audio_s = float(getattr(info, "duration", 0.0) or 0.0)
+    generator, info = model.transcribe(stream if stream is not None else str(audio), **kwargs)
+    decoded_s = float(getattr(info, "duration", 0.0) or 0.0)
+    audio_s = float(wav_duration_s(audio)) if stream is not None else decoded_s
     collected: list[Segment] = []
     for seg in generator:
         segment = segment_from_library(seg, want_words)
+        if stream is not None:
+            segment = restore_segment(segment, pieces)
         collected.append(segment)
         if on_segment is not None:
             on_segment(segment)
-        if progress is not None and audio_s > 0.0:
-            progress(min(1.0, float(seg.end) / audio_s))
+        if progress is not None and decoded_s > 0.0:
+            progress(min(1.0, float(seg.end) / decoded_s))
     segments = tuple(collected)
     transcribe_s = time.perf_counter() - transcribe_start
     extras: dict[str, float | int | None] = {
@@ -253,6 +354,10 @@ def transcribe(
         "segments": len(segments),
         "words": sum(len(segment.words) for segment in segments),
         "threads": thread_count,
+        "windows": len(windows) if windows is not None else None,
+        "windows_s": float(sum(end - start for start, end in windows)) if windows is not None else None,
+        "clips": len(clips) if clips is not None else None,
+        "clipped_s": float(sum(end - start for start, end in clips)) if clips is not None else None,
     }
     return Transcript(
         engine=ENGINE_NAME,

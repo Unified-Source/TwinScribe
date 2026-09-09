@@ -42,6 +42,10 @@ class ReviewSettings:
     pad_s: float = 0.4
 
 
+CHECK_EVERYWHERE = "everywhere"
+CHECK_GAPS = "gaps"
+
+
 @dataclass(frozen=True)
 class Profile:
     """One quality level."""
@@ -55,6 +59,8 @@ class Profile:
     detector_preset: str = "production"
     review: ReviewSettings = field(default_factory=ReviewSettings)
     diarization_threshold: float = 0.5
+    checking: str = CHECK_EVERYWHERE
+    checking_margin_s: float = 1.0
 
     @property
     def detector(self) -> str:
@@ -94,6 +100,14 @@ PROFILES: tuple[Profile, ...] = (
         description="Full-size Whisper large-v3 as the detector; slower, for the hardest audio.",
         publisher=KEY_PARAKEET_V2,
         detectors=(KEY_WHISPER_LARGE, KEY_WHISPER_LARGE_ONNX),
+    ),
+    Profile(
+        name="laptop",
+        title="Laptop",
+        description="The Standard engines; the checker decodes only where the published engine fell silent, for machines without a graphics device.",
+        publisher=KEY_PARAKEET_V2,
+        detectors=(KEY_WHISPER_TURBO, KEY_WHISPER_TURBO_ONNX),
+        checking=CHECK_GAPS,
     ),
 )
 

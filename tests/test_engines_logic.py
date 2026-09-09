@@ -535,3 +535,43 @@ def test_diarize_live(tmp_path):
     assert result.load_s >= 0.0 and result.diarize_s >= 0.0
     assert set(result.seconds_per_label) == set(result.labels)
     assert result.settings["num_speakers"] is None
+
+
+def test_stream_kwargs_drop_the_voice_filter_and_any_clips():
+    kwargs = whisper_ct2.transcribe_kwargs(presets.WHISPER_PRESETS["production"])
+    streamed = whisper_ct2.stream_kwargs(dict(kwargs, clip_timestamps=[1.0, 2.0]))
+    assert "vad_filter" not in streamed and "vad_parameters" not in streamed and "clip_timestamps" not in streamed
+    assert streamed["beam_size"] == kwargs["beam_size"] and "vad_filter" in kwargs
+
+
+def test_restore_time_maps_the_stream_back_to_the_recording():
+    # Two pieces: recording 10-12 s sits at stream 0-2 s, recording 20-23 s at stream 2-5 s.
+    pieces = [(0.0, 10.0, 12.0), (2.0, 20.0, 23.0)]
+    assert whisper_ct2.restore_time(pieces, 0.0) == 10.0
+    assert whisper_ct2.restore_time(pieces, 1.5) == 11.5
+    assert whisper_ct2.restore_time(pieces, 2.0) == 20.0
+    assert whisper_ct2.restore_time(pieces, 4.5) == 22.5
+    # Past the last piece the time clamps to its end; without pieces it is unchanged.
+    assert whisper_ct2.restore_time(pieces, 6.0) == 23.0
+    assert whisper_ct2.restore_time([], 3.0) == 3.0
+
+
+def test_concatenate_clips_joins_the_samples_and_records_the_pieces():
+    import numpy as np
+
+    samples = np.arange(16000 * 4, dtype=np.float32)
+    stream, pieces = whisper_ct2.concatenate_clips(samples, [(0.5, 1.0), (3.0, 3.25), (3.9, 3.9)])
+    assert len(stream) == 16000 // 2 + 16000 // 4 and stream.dtype == np.float32
+    assert pieces == [(0.0, 0.5, 1.0), (0.5, 3.0, 3.25)]
+    assert stream[0] == 8000.0 and stream[8000] == 48000.0
+
+
+def test_speech_within_keeps_the_speech_inside_the_windows_and_merges():
+    windows = [(1.0, 6.0), (8.0, 10.0)]
+    speech = [(0.0, 2.0), (3.0, 4.0), (5.5, 9.0), (9.5, 12.0)]
+    # The first window keeps 1-2, 3-4 and 5.5-6; the second keeps 8-9 and 9.5-10.
+    assert whisper_ct2.speech_within(windows, speech) == [(1.0, 2.0), (3.0, 4.0), (5.5, 6.0), (8.0, 9.0), (9.5, 10.0)]
+    # Speech spanning two touching windows merges into one clip; silence-only windows vanish.
+    assert whisper_ct2.speech_within([(0.0, 5.0), (5.0, 8.0)], [(4.0, 6.0)]) == [(4.0, 6.0)]
+    assert whisper_ct2.speech_within([(0.0, 5.0)], [(6.0, 7.0)]) == []
+    assert whisper_ct2.speech_within([], [(0.0, 1.0)]) == [] and whisper_ct2.speech_within([(0.0, 1.0)], []) == []

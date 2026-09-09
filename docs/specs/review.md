@@ -105,3 +105,12 @@ documented shapes or `None`.
 
 `docs/specs/review.notes.md`: deviations, and anything about the load probe on this platform
 that the specification did not anticipate.
+
+## The checking windows
+
+`checking_windows(published, audio_s, min_silence_s, margin_s)` gives the spans a checker
+need decode when it checks only where the publisher fell silent: every published-silent
+span of at least `min_silence_s` (the review rule's own threshold), widened by `margin_s` on
+both sides for context, clamped to the recording, and merged where they touch or overlap.
+Leading and trailing silence count, as in the review. A recording with no silence long
+enough gives no window, and a checker given no window decodes nothing.

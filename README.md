@@ -69,7 +69,10 @@ One window, in the manner of a media player: drop recordings or folders in, each
 once, and the ones that have been transcribed show their transcript following the audio, the
 review marks on the timeline and between the lines, and a button that opens the verification
 screen. Choose a quality level, press Transcribe, and the pipeline runs over everything not
-yet done with progress per file. While a recording is being transcribed its lines appear as
+yet done with progress per file. Quick, Standard and Careful differ in the checking engine; a
+fourth level, Laptop, keeps the Standard engines but decodes with the checker only where the
+published engine fell silent, for machines without a graphics device, where the checker is
+the costly half; what that saves and costs is measured in `docs/specs/bench.notes.md`. While a recording is being transcribed its lines appear as
 they are decoded; they can be read without being pulled to the newest line, clicked to move
 the playhead, and played from. The number of speakers can be given when it is known; by
 default the count comes from clustering, so a speaker the models cannot separate is missing

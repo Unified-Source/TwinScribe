@@ -216,13 +216,13 @@ def test_progress_carries_time_and_loading_messages_and_partials(recording: Path
 def test_detector_placement_follows_the_plan(recording: Path, models, tmp_path: Path) -> None:
     seen: dict[str, dict] = {}
     process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
-    assert seen["detector"] == {"device": "cpu", "compute_type": "int8", "device_index": 0}
+    assert seen["detector"] == {"device": "cpu", "compute_type": "int8", "device_index": 0, "clips": None}
     assert seen["publisher"] == {"provider": "cpu"} and seen["diarizer"] == {"provider": "cpu"}
 
     gpu_plan = make_plan_for(cuda=True, sherpa_cuda=True)
     seen.clear()
     process_file(job_for(recording, models, tmp_path, plan=gpu_plan), engines=make_engines(kwargs_seen=seen))
-    assert seen["detector"] == {"device": "cuda", "compute_type": "float16", "device_index": 0}
+    assert seen["detector"] == {"device": "cuda", "compute_type": "float16", "device_index": 0, "clips": None}
     assert seen["publisher"] == {"provider": "cuda"} and seen["diarizer"] == {"provider": "cuda"}
 
 
@@ -522,3 +522,24 @@ def test_batch_cancellation_marks_the_rest(recording: Path, models, tmp_path: Pa
     assert result.failures == [] and result.completed == []
     record = json.loads(result.record_path.read_text(encoding="utf-8"))
     assert all(f.get("cancelled") for f in record["files"])
+
+
+def test_laptop_level_checks_the_gaps_after_the_publisher(recording: Path, models, tmp_path: Path) -> None:
+    from twinscribe.profiles import CHECK_GAPS, profile_for
+    from twinscribe.review import checking_windows
+
+    seen: dict[str, dict] = {}
+    calls: list[str] = []
+    result = process_file(job_for(recording, models, tmp_path, profile=profile_for("laptop")), engines=make_engines(calls=calls, kwargs_seen=seen))
+    clips = seen["detector"]["clips"]
+    assert clips and all(0.0 <= start < end <= 30.0 for start, end in clips)
+    assert clips == sorted(clips) and all(clips[i][1] < clips[i + 1][0] for i in range(len(clips) - 1))
+    published = make_engines()  # the fixture words the fake publisher returns
+    assert clips == checking_windows(published.publisher(recording, tmp_path, None, "vad").words, 30.0)
+    assert calls.index("publisher") < calls.index("detector")
+    record = json.loads(result.record_path.read_text(encoding="utf-8")) if hasattr(result, "record_path") else None
+    if record is not None:
+        assert record["settings"]["checking"] == CHECK_GAPS
+    standard: dict[str, dict] = {}
+    process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=standard))
+    assert standard["detector"].get("clips") is None

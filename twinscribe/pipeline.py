@@ -22,15 +22,15 @@ from twinscribe.engines.base import Diarization, Segment, Transcript
 from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
 from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRESET
 from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
-from twinscribe.hardware import BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
+from twinscribe.hardware import BACKEND_CT2, BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
 from twinscribe.history import HISTORY_FILE, append_entry, entry_from_result, history_path
 from twinscribe.labelling import DEFAULT_MIN_RUN_S, DEFAULT_MIN_RUN_WORDS, build_lines, label_words, smooth_labels
 from twinscribe.models import KEY_AUDIO_TAGGER, KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import build_document, overview_peaks, write_document
 from twinscribe.paths import runs_dir, work_dir
-from twinscribe.profiles import Profile, select as select_level
-from twinscribe.review import build_review, review_set, write_review_set
+from twinscribe.profiles import Profile, select as select_level, CHECK_EVERYWHERE, CHECK_GAPS
+from twinscribe.review import build_review, review_set, write_review_set, checking_windows
 from twinscribe.runrecord import Failure, RunRecord, utc_now, write_json_atomic
 from twinscribe.scenes import Analysis, analyse, seconds_by_kind, without_segments, words_outside
 
@@ -373,6 +373,8 @@ def _preset_settings(profile: Profile, backend: str | None = None) -> dict[str, 
             "pad_s": profile.review.pad_s,
         },
         "diarization_threshold": profile.diarization_threshold,
+        "checking": profile.checking,
+        "checking_margin_s": profile.checking_margin_s,
         "version": __version__,
     }
 
@@ -443,7 +445,7 @@ def process_file(
                 on_segment=publisher_segment if on_partial is not None else None,
             )
 
-        def run_detector() -> Transcript:
+        def run_detector(clips: Sequence[tuple[float, float]] | None = None) -> Transcript:
             if backend == BACKEND_ONNX:
                 if engine_set.detector_onnx is None:
                     raise RuntimeError("the ONNX detector is not available in this engine set")
@@ -465,10 +467,23 @@ def process_file(
                 device=placement.device,
                 compute_type=placement.compute_type or "auto",
                 device_index=placement.index,
+                clips=clips,
             )
 
+        checking = profile.checking if backend == BACKEND_CT2 else CHECK_EVERYWHERE
+        windows: list[tuple[float, float]] | None = None
         before = load.snapshot()
-        if parallel:
+        if checking == CHECK_GAPS:
+            reporter.report("publisher", 0.0, LOADING_TITLES["publisher"])
+            published = run_publisher()
+            reporter.report("publisher", 1.0)
+            windows = checking_windows(
+                published.words, float(published.audio_s), profile.review.min_silence_s, profile.checking_margin_s,
+            )
+            reporter.report("detector", 0.0, LOADING_TITLES["detector"])
+            detector = run_detector(windows)
+            reporter.report("detector", 1.0)
+        elif parallel:
             reporter.set_parallel(True)
             reporter.report("publisher", 0.0, "Loading both engines")
             with ThreadPoolExecutor(max_workers=2) as pool:

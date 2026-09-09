@@ -263,3 +263,16 @@ The player bar carries an output device box beside the volume: the system defaul
 the system's outputs by description, the list following the system's changes. The choice is
 kept in the settings by device id and applied when that device is present; otherwise playback
 goes to the system default and the box shows so, keeping the choice for when the device returns.
+
+## The Laptop level
+
+A fourth quality level, `laptop`: the Standard engines with the checker decoding only where
+the published engine fell silent, for machines without a graphics device, where the checker
+is the costly half. The pipeline then runs the two engines one after the other, the
+publisher first, takes the checking windows from its words at the review rule's threshold
+with a one-second margin, and hands them to the checker as clips, which decodes the speech
+its voice detector finds inside them and not the silence; the run record says
+`checking: gaps` and the margin. The review list is built as for every level, from the
+published words and what the checker heard in the windows. The bench carries an arm for it
+(`whisper-turbo-gaps`, scored as `review-gaps`) beside the full check, so the saving and the
+cost in marks are measured on the same recordings.
