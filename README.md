@@ -1,6 +1,9 @@
 # TwinScribe
 
-<img src="docs/images/icon.png" width="72" alt="The TwinScribe icon: two traces, the published engine's and the checking engine's">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
+  <img src="docs/images/logo.png" height="96" alt="TwinScribe: two facing panels carrying waveforms, the published engine's dark and the checking engine's light">
+</picture>
 
 [![tests](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml/badge.svg)](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml)
 

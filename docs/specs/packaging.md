@@ -9,12 +9,11 @@ and the installation section of the README. The icon (`twinscribe/app/app_icon.p
 
 ## 1. The icon
 
-Painted at call time like every other icon, so no image file is needed by the running
-program: a rounded square in the accent colour carrying two traces, the published engine's
-solid and the checking engine's fainter beneath it. `app_icon()` gives every standard size
-from 16 to 256 pixels; both windows set it. `tools/make_icon.py` renders the same painting to
-`assets/twinscribe.ico` (every size, PNG-compressed entries) for the executables and to
-`docs/images/icon.png` for the documentation; the .ico is tracked as binary.
+The mark is specified in `icon.md`. `app_icon()` gives it at every standard size from 16 to
+256 pixels; both windows set it. `tools/make_icon.py` renders the same painting to
+`assets/twinscribe.ico` (every size, PNG-compressed entries) for the executables, to
+`docs/images/icon.png`, and beside the wordmark to `docs/images/logo.png` and `logo-dark.png`
+for the documentation; the .ico is tracked as binary.
 
 ## 2. The executables
 

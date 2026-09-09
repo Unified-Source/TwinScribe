@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 )
 
 from twinscribe import __version__
-from twinscribe.app.app_icon import app_icon, app_pixmap
+from twinscribe.app.app_icon import app_icon, app_pixmap, brand_markup
 from twinscribe.app.export_dialog import ExportDialog
 from twinscribe.app.history_dialog import HistoryDialog
 from twinscribe.app.models_dialog import ModelsDialog
@@ -357,10 +357,13 @@ class MainWindow(QMainWindow):
         mark.setObjectName("brandmark")
         mark.setPixmap(app_pixmap(22, self.theme.dark))
         mark.setFixedSize(22, 22)
+        self.brand_mark = mark
         top_layout.addWidget(mark)
         top_layout.addSpacing(2)
-        brand = QLabel(APP_TITLE, top)
+        brand = QLabel(brand_markup(self.theme), top)
         brand.setObjectName("brand")
+        brand.setTextFormat(Qt.TextFormat.RichText)
+        self.brand_label = brand
         tagline = QLabel("offline transcription with speaker labels", top)
         tagline.setObjectName("muted")
         top_layout.addWidget(brand)
@@ -600,6 +603,8 @@ class MainWindow(QMainWindow):
     def _apply_theme_widgets(self) -> None:
         text_colour = self.palette().color(self.palette().ColorRole.Text)
         self.settings_button.setIcon(make_icon("gear", self.theme.muted))
+        self.brand_mark.setPixmap(app_pixmap(22, self.theme.dark))
+        self.brand_label.setText(brand_markup(self.theme))
         self.open_files_button.setIcon(make_icon("file", text_colour, 16))
         self.open_folder_button.setIcon(make_icon("folder", text_colour, 16))
         self.review_button.setIcon(make_icon("flag", self.theme.warning, 16))
