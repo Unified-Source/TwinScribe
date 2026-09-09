@@ -21,6 +21,7 @@ from xml.sax.saxutils import escape
 from twinscribe import __version__
 from twinscribe.labelling import UNLABELLED_NAME
 from twinscribe.outputs.plain_text import APPROXIMATE_NOTE, DRAFT_NOTICE, set_aside_note, transcript_entries
+from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, reviewed_note
 from twinscribe.outputs.transcript_doc import (
     approximate_word_times,
     clock,
@@ -249,6 +250,9 @@ def document_body(doc: Mapping[str, Any]) -> str:
     else:
         review_text = "Review list: no span where speech may be missing was found. "
     parts.append(_paragraph(_run(review_text + DRAFT_NOTICE), "Meta"))
+    reviewed = reviewed_note(doc)
+    if reviewed:
+        parts.append(_paragraph(_run(reviewed), "Meta"))
     summary = non_speech_summary(doc)
     if summary:
         parts.append(_paragraph(_run(f"Without speech: {summary}; marked in the transcript."), "Meta"))
@@ -272,12 +276,14 @@ def document_body(doc: Mapping[str, Any]) -> str:
         else:
             name = UNLABELLED_NAME
             colour = MUTED
+        listener = entry.get("src") == SOURCE_LISTENER
         runs = (
             _run(clock(start), colour=MUTED, size_half_points=18)
             + _tab()
             + _run(name, bold=True, colour=colour)
+            + (_run(f" ({LISTENER_SUFFIX})", colour=MUTED, italic=True, size_half_points=18) if listener else "")
             + _tab()
-            + _run(entry.get("text", ""))
+            + _run(entry.get("text", ""), italic=listener)
         )
         parts.append(_paragraph(runs, "TranscriptLine"))
     if not doc.get("lines"):
