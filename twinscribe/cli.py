@@ -33,7 +33,7 @@ from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, availa
 def build_parser() -> argparse.ArgumentParser:
     """The command line with its five commands."""
     parser = argparse.ArgumentParser(prog="twinscribe", description="Offline transcription with speaker labels.")
-    parser.add_argument("--version", action="version", version=f"twinscribe {__version__}")
+    parser.add_argument("--version", action="version", version=f"TwinScribe {__version__}")
     commands = parser.add_subparsers(dest="command")
 
     app = commands.add_parser("app", help="open the application window")
@@ -140,7 +140,7 @@ class LiveLine:
 def command_check(args: argparse.Namespace) -> int:
     """Print what the machine offers and what the store holds."""
     ffmpeg = shutil.which("ffmpeg")
-    print(f"twinscribe {__version__}")
+    print(f"TwinScribe {__version__}")
     print(f"ffmpeg:          {ffmpeg or 'not found on the search path'}")
     for module, extra in (("faster_whisper", "engines"), ("sherpa_onnx", "engines"), ("PySide6", "app")):
         state = "installed" if _module_present(module) else f"not installed (extra '{extra}')"

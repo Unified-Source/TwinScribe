@@ -1,6 +1,6 @@
 # Running without an installation
 
-twinscribe is meant to run on an ordinary laptop with no administrator rights and no network:
+TwinScribe is meant to run on an ordinary laptop with no administrator rights and no network:
 one folder that holds an interpreter, the libraries, the models and ffmpeg, started from a
 launcher beside them. Nothing is installed and nothing is written outside the folder except,
 by choice, the outputs beside the recordings.

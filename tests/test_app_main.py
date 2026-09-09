@@ -156,7 +156,7 @@ def test_read_document_facts(media: dict[str, Path], tmp_path: Path) -> None:
 
 def test_window_starts_empty(app: QApplication, tmp_path: Path, home: Path) -> None:
     window = make_window(app, tmp_path)
-    assert window.windowTitle() == "twinscribe"
+    assert window.windowTitle() == "TwinScribe"
     assert window.library_model.rowCount() == 0
     assert window.library_stack.currentIndex() == 1
     assert not window.transcribe_button.isEnabled()

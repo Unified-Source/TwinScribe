@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from twinscribe.app.app_icon import app_icon
 from twinscribe.app.theme import Theme, apply_theme, theme_for
 from twinscribe.app.timeline import Timeline, format_mss
 
@@ -384,6 +385,7 @@ class VerifyWindow(QMainWindow):
         self.review_path = Path(review_path)
         self.session_path = session_path_for(self.review_path)
         self.theme = theme if theme is not None else theme_for(False)
+        self.setWindowIcon(app_icon(self.theme.dark))
         self.audio_path = resolve_audio_path(self.review_path, review.audio)
         self.audio_available = self.audio_path.is_file()
         self.text_prompt: TextPrompt = self._default_text_prompt
@@ -775,7 +777,7 @@ class VerifyWindow(QMainWindow):
 
     def _refresh_title(self) -> None:
         total = len(self.review.marks)
-        self.setWindowTitle(f"{self.done_count()} of {total} done  |  twinscribe verify  |  "
+        self.setWindowTitle(f"{self.done_count()} of {total} done  |  TwinScribe verify  |  "
                             f"{self.audio_path.name}")
 
     # ----- keys -----------------------------------------------------------------------

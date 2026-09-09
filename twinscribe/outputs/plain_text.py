@@ -63,7 +63,7 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
         str(source.get("name", "")),
         f"Duration {clock(float(doc.get('duration_s', 0.0)), tenths=False)}   |   "
         f"{len(labelled)} {noun}   |   produced {doc.get('produced_utc', '')}   |   "
-        f"twinscribe {doc.get('version', '')}, quality level {doc.get('profile', '')}",
+        f"TwinScribe {doc.get('version', '')}, quality level {doc.get('profile', '')}",
         f"Published engine: {_engine_line(engines.get('publisher'))}",
         f"Checked against: {_engine_line(engines.get('detector'))}; its text is never published"
         + (f"; {APPROXIMATE_NOTE}" if approximate_word_times(engines.get("detector")) else ""),

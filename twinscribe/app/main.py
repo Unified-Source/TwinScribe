@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 )
 
 from twinscribe import __version__
+from twinscribe.app.app_icon import app_icon, app_pixmap
 from twinscribe.app.icons import make_icon
 from twinscribe.app.job_status import JobStatusCard
 from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
@@ -102,7 +103,7 @@ SPEAKERS_TIP = (
     "separate is missing rather than hidden inside another label; set a number only when it is known."
 )
 
-APP_TITLE = "twinscribe"
+APP_TITLE = "TwinScribe"
 SHOT_DELAY_MS = 1200
 NUDGE_S = 5.0
 SESSION_SCHEMA = "twinscribe.review-session.v1"
@@ -296,6 +297,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.settings = settings
         self.theme = theme if theme is not None else theme_for(settings.dark)
+        self.setWindowIcon(app_icon(self.theme.dark))
         self._engines = engines
         self._record_dir = record_dir
         self._plan_override = plan
@@ -348,6 +350,12 @@ class MainWindow(QMainWindow):
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(16, 10, 16, 10)
         top_layout.setSpacing(8)
+        mark = QLabel(top)
+        mark.setObjectName("brandmark")
+        mark.setPixmap(app_pixmap(22, self.theme.dark))
+        mark.setFixedSize(22, 22)
+        top_layout.addWidget(mark)
+        top_layout.addSpacing(2)
         brand = QLabel(APP_TITLE, top)
         brand.setObjectName("brand")
         tagline = QLabel("offline transcription with speaker labels", top)
@@ -1017,10 +1025,11 @@ class MainWindow(QMainWindow):
         backend = "CTranslate2" if selection.backend == BACKEND_CT2 else "ONNX"
         count = self.settings.speakers_or_none
         speakers_note = f"; speaker count fixed at {count}" if count is not None else ""
+        # The publisher's placement is on the job card; the status line stays short enough to
+        # sit beside the batch label.
         self.set_status(
             f"Transcribing {self._batch_total} recording" + ("" if self._batch_total == 1 else "s")
-            + f" at the {profile.title} level; detector {backend} on {where}; publisher on "
-            f"{plan.publisher.describe()}{speakers_note}."
+            + f" at the {profile.title} level; detector {backend} on {where}{speakers_note}."
         )
         self.worker.start()
         return True
@@ -1459,6 +1468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_TITLE)
     theme = apply_theme(app, dark=settings.dark)
+    app.setWindowIcon(app_icon(settings.dark))
     apply_styles(app, dark=settings.dark)
     window = MainWindow(settings, theme)
     if len(settings.window_size) != 2:

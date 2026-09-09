@@ -29,7 +29,7 @@ from twinscribe.outputs.transcript_doc import (
     speaker_names,
 )
 
-APPLICATION_NAME = "twinscribe"
+APPLICATION_NAME = "TwinScribe"
 MUTED = "7F7F7F"
 SPEAKER_COLOURS: tuple[str, ...] = (
     "1F6F8B",
