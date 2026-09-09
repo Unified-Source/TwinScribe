@@ -1,7 +1,6 @@
 # Specification: the verification screen
 
-Read `CONVENTIONS.md` first, then section 9 of `../Design_and_Findings_2026-09-06.md` and
-section 6 of `engines_and_review.md` for the review-set JSON it reads.
+Read `CONVENTIONS.md` first, then section 6 of `engines_and_review.md` for the review-set JSON it reads.
 
 Deliver `twinscribe/app/__init__.py`, `twinscribe/app/verify.py`, `twinscribe/app/theme.py`,
 `twinscribe/app/timeline.py`, and `tests/test_app_verify.py`. PySide6 6.8 or later with
