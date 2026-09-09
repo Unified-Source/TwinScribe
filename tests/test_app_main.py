@@ -325,6 +325,42 @@ def test_batch_runs_in_the_worker(app: QApplication, tmp_path: Path, home: Path,
     assert "Batch finished: 1 done" in window.statusBar().currentMessage()
     assert not window.transcribe_button.isEnabled()          # nothing pending any more
     assert list((tmp_path / "runs").glob("batch_*.json"))
+    from twinscribe.history import read_history
+
+    assert [e.name for e in read_history(tmp_path / "history.json")] == ["fresh.wav"]
+    dispose(app, window)
+
+
+def test_history_and_export_dialogs_open(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from twinscribe.app.export_dialog import ExportDialog
+    from twinscribe.app.history_dialog import HistoryDialog
+    from twinscribe.history import HistoryEntry, append_entry
+
+    window = make_window(app, tmp_path, engines=make_engines())
+    assert not window.export_button.isEnabled() and window.open_export(modal=False) is None
+    window.add_paths([media["done"], media["fresh"]])
+    window.select_row(0)
+    app.processEvents()
+    assert window.export_button.isEnabled()
+    export = window.open_export(modal=False)
+    assert isinstance(export, ExportDialog) and export.stem_edit.text() == "call"
+    assert export.folder_edit.text() == str(media["done"].parent)
+    export.close()
+    window.select_row(1)
+    app.processEvents()
+    assert not window.export_button.isEnabled()
+    paths = output_paths(media["done"])
+    append_entry(HistoryEntry(path=str(media["done"]), name="call.wav", sha256="", duration_s=30.0, profile="standard", marks=2,
+                              speakers=2, produced_utc="2026-01-01T00:00:00+00:00", outputs={"transcript": str(paths.transcript)}),
+                 home / "history.json")
+    history = window.open_history(modal=False)
+    assert isinstance(history, HistoryDialog) and history.table.rowCount() == 1
+    window.clear_library()
+    history.table.selectRow(0)
+    history.add_to_library()
+    app.processEvents()
+    assert [item.path for item in window.library_model.items()] == [media["done"]]
+    history.close()
     dispose(app, window)
 
 
