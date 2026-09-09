@@ -23,6 +23,7 @@ from twinscribe.engines.presets import PARAKEET_PRESETS, WHISPER_PRESETS
 from twinscribe.engines.whisper_onnx import DEFAULT_PRESET as ONNX_DETECTOR_PRESET
 from twinscribe.engines.whisper_onnx import WHISPER_ONNX_PRESETS
 from twinscribe.hardware import BACKEND_ONNX, DEVICE_AUTO, Plan, current_plan
+from twinscribe.history import HISTORY_FILE, append_entry, entry_from_result, history_path
 from twinscribe.labelling import DEFAULT_MIN_RUN_S, DEFAULT_MIN_RUN_WORDS, build_lines, label_words, smooth_labels
 from twinscribe.models import KEY_AUDIO_TAGGER, KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
@@ -767,6 +768,7 @@ def run_batch(
     preference: str = DEVICE_AUTO,
     on_partial: BatchPartialFn | None = None,
     speakers: int | None = None,
+    history_path: str | os.PathLike[str] | None = None,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
 
@@ -782,6 +784,13 @@ def run_batch(
     total = len(sources)
     stopped = False
     batch_plan = plan if plan is not None else current_plan(preference, threads)
+    # The history sits beside the batch records: under the given folder's parent, else the home.
+    if history_path is not None:
+        history_target = Path(history_path)
+    elif record_dir is not None:
+        history_target = Path(record_dir).parent / HISTORY_FILE
+    else:
+        history_target = globals()['history_path']()
 
     def record(outcome: Outcome, index: int) -> None:
         result.outcomes.append(outcome)
@@ -820,6 +829,10 @@ def run_batch(
                 job, progress=file_progress, cancel=cancel, engines=engines,
                 on_partial=file_partial if on_partial is not None else None,
             )
+            try:
+                append_entry(entry_from_result(file_result), history_target)
+            except (OSError, ValueError, TypeError):
+                pass  # the history is a convenience; a run never fails for it
             record(Outcome(source=source, ok=True, result=file_result, elapsed_s=time.perf_counter() - started), index)
         except Cancelled:
             record(Outcome(source=source, ok=False, cancelled=True, elapsed_s=time.perf_counter() - started), index)

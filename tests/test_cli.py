@@ -130,3 +130,8 @@ def test_export_renders_beside_the_document(tmp_path: Path, capsys: pytest.Captu
     assert "rendered meeting.txt, meeting.docx, meeting.srt" in capsys.readouterr().out
     assert (tmp_path / "meeting.txt").is_file() and (tmp_path / "meeting.docx").is_file() and (tmp_path / "meeting.srt").is_file()
     assert cli.main(["export", str(tmp_path / "absent.json")]) == 1
+    out = tmp_path / "elsewhere"
+    assert cli.main(["export", str(path), "--out", str(out), "--formats", "text", "vtt", "transcript"]) == 0
+    assert "rendered meeting.txt, meeting.vtt, meeting.transcript.json" in capsys.readouterr().out
+    assert (out / "meeting.vtt").read_text(encoding="utf-8").startswith("WEBVTT")
+    assert (out / "meeting.transcript.json").is_file() and not (out / "meeting.docx").exists()

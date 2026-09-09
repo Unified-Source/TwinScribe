@@ -25,6 +25,7 @@ from twinscribe.hardware import (
 )
 from twinscribe.models import STATUS_VERIFIED, find_models, verify_store
 from twinscribe.outputs import render_all
+from twinscribe.outputs.export import DEFAULT_FORMATS, FORMATS, export_outputs
 from twinscribe.outputs.transcript_doc import load_document
 from twinscribe.pipeline import Progress, discover_media, output_paths, run_batch
 from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, available_profiles, select
@@ -68,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export", help="render text, Word and subtitles again from transcript documents")
     export.add_argument("documents", nargs="+", type=Path, help="*.transcript.json files")
     export.add_argument("--author", default="", help="author written into the Word document properties")
+    export.add_argument("--out", type=Path, default=None, help="folder to write into (default: beside each document)")
+    export.add_argument("--formats", nargs="+", default=list(DEFAULT_FORMATS), choices=[key for key, _, _ in FORMATS],
+                        help="what to write (default: text docx srt)")
 
     verify = commands.add_parser("verify", help="open the verification screen for a review set")
     verify.add_argument("review_set", type=Path)
@@ -241,8 +245,10 @@ def command_export(args: argparse.Namespace) -> int:
             continue
         source_name = str(doc.get("source", {}).get("name", path.stem))
         paths = output_paths(path.parent / source_name)
-        render_all(doc, paths.text, paths.docx, paths.subtitles, author=args.author)
-        print(f"rendered {paths.text.name}, {paths.docx.name}, {paths.subtitles.name}")
+        stem = paths.transcript.name[: -len(".transcript.json")]
+        sources = {"transcript": path, "review": paths.review, "run": paths.run}
+        written = export_outputs(doc, args.out if args.out is not None else path.parent, stem, args.formats, author=args.author, sources=sources)
+        print("rendered " + ", ".join(p.name for p in written))
     return status
 
 
