@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from twinscribe.paths import app_home
+from twinscribe.paths import app_home, frozen_sibling
 from twinscribe.runrecord import utc_now, write_json_atomic
 
 MODELS_ENV = "TWINSCRIBE_MODELS"
@@ -323,11 +323,15 @@ class ModelSet:
 
 
 def default_models_root() -> Path:
-    """The models root: the environment variable, else a models folder beside the package
-    (a checkout or a portable copy), else one under the application home."""
+    """The models root: the environment variable, else a models folder beside a frozen
+    build's executable, else one beside the package (a checkout or a portable copy), else
+    one under the application home."""
     override = os.environ.get(MODELS_ENV)
     if override:
         return Path(override)
+    beside_executable = frozen_sibling("models")
+    if beside_executable is not None:
+        return beside_executable
     beside = Path(__file__).resolve().parent.parent / "models"
     if beside.is_dir():
         return beside

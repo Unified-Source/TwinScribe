@@ -140,6 +140,35 @@ python tools/fetch_models.py --root models
 python -m twinscribe app <folder with the recordings>
 ```
 
+## Installing
+
+Three ways, from the least effort to the most. All three run offline once the models are in
+place; none needs administrator rights.
+
+1. **The portable folder** (Windows): unzip `twinscribe-portable.zip` anywhere and double-click
+   `twinscribe-app.cmd`. The folder holds its own interpreter, every library, the decoder, the
+   models of the Standard level and a `home` folder for settings and records, so nothing is
+   installed and two copies never share state. `twinscribe.cmd run <folder>` is the command
+   line. `tools/build_portable.py` assembles it, as described in
+   [docs/Portable_Layout.md](docs/Portable_Layout.md).
+2. **The executables** (Windows): unzip `twinscribe-win64.zip` and double-click
+   `twinscribe\twinscribe-app.exe`; `twinscribe\twinscribe.exe` is the command line. The
+   folder carries every library and the decoder; put a fetched `models` folder beside the
+   executables (or point `TWINSCRIBE_MODELS` at one, or choose it in Settings), and a `home`
+   folder beside them makes the copy portable. `tools/build_exe.py` builds it with PyInstaller
+   from `tools/twinscribe.spec`.
+3. **From source** (Windows, Linux, macOS): Python 3.11 or later, then
+
+   ```
+   pip install .[engines,app,ffmpeg]        # add ,cuda on Windows or Linux with an NVIDIA device
+   python tools/fetch_models.py --root models
+   python -m twinscribe app
+   ```
+
+The models are fetched once, by `tools/fetch_models.py`, from the sources the catalogue names,
+and pinned by digest; `python -m twinscribe check --verify` confirms a store. Which platforms
+and accelerators are covered is in [docs/Platforms.md](docs/Platforms.md).
+
 ## Components and licences
 
 Engines and models are open and run on the processor: faster-whisper and CTranslate2 (MIT),
