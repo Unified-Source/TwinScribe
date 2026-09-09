@@ -1,7 +1,7 @@
 # Specification: the bench
 
-Read `CONVENTIONS.md` first, then sections 2, 4, 7, 8 and 11 (item 2) of
-`../Design_and_Findings_2026-09-06.md`.
+Read `CONVENTIONS.md` first. The design record this bench reproduces is held outside the
+repository; the figures it set are restated in `bench.notes.md` beside what was measured.
 
 Deliver the package `twinscribe/bench/`, the tools `tools/fetch_corpora.py` and
 `tools/bench.py`, and `tests/test_bench.py`. The bench reproduces the design's accuracy tables

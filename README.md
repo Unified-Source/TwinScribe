@@ -42,9 +42,10 @@ speech and the published engine heard nothing. Those marks are the review list, 
 telephone recordings they landed on real missed speech 61 times out of 62, covering 92 per
 cent of the words the published engine had dropped, for 18 per cent of the audio listened to.
 
-The full design, the measurements on public corpora, the engine and licence landscape, and
-the engineering traps already paid for are in
-[docs/Design_and_Findings_2026-09-06.md](docs/Design_and_Findings_2026-09-06.md).
+The design record behind the tool, with its measurements on public corpora, the engine and
+licence landscape and the engineering traps already paid for, is held outside this repository.
+The findings the code relies on are restated in the specifications under `docs/specs/`, and
+the bench notes record how the accuracy tables were reproduced.
 
 ## What it produces, per recording
 

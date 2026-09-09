@@ -5,8 +5,8 @@ they are absolute.
 
 ## Provenance
 
-- Every line is written fresh from the specifications in this folder and from
-  `docs/Design_and_Findings_2026-09-06.md`. Nothing is copied or adapted from any other
+- Every line is written fresh from the specifications in this folder and from the design
+  record they follow, which is held outside this repository. Nothing is copied or adapted from any other
   codebase, and no other codebase is consulted while writing.
 - Third-party code enters only by vendoring from its upstream source with its licence file
   beside it, and is recorded in `NOTICE`.

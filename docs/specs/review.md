@@ -1,7 +1,6 @@
 # Specification: review list, run record, load measurement
 
-Read `CONVENTIONS.md` first, then sections 2, 3 and 7 of
-`../Design_and_Findings_2026-09-06.md`, and `engines.md` for the `Word` and `Transcript`
+Read `CONVENTIONS.md` first, then `engines.md` for the `Word` and `Transcript`
 types.
 
 Deliver `twinscribe/review.py`, `twinscribe/runrecord.py`, `twinscribe/load.py` and tests

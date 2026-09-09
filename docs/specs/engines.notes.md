@@ -128,7 +128,7 @@ lock. Nothing in the three wrappers needed changing to run live.
 - Timings under emulation for the 143 second file, recorded as observed and not comparable
   with any other machine: transducer load 2.3 s and decode 19.1 s; Whisper load 4.4 s and
   decode 97.8 s; diarizer 22.8 s. The run records flagged other load on the machine. No figure
-  here is to be quoted; the design document reserves speed for the lab hardware.
+  here is to be quoted; the design record reserves speed for the lab hardware.
 - `library_versions()` reports the onnxruntime version sherpa-onnx bundles (1.27.1 here),
   which differs from the onnxruntime package installed beside it (1.29.0); the run record
   therefore names the runtime the transducer actually used, which is the right one.

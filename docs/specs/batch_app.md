@@ -1,7 +1,6 @@
 # Specification: the batch application
 
-Read `CONVENTIONS.md` first, then sections 1, 3, 4, 9 and 11 (item 4) of
-`../Design_and_Findings_2026-09-06.md`, `engines.md` for the engine wrappers and their records,
+Read `CONVENTIONS.md` first, then `engines.md` for the engine wrappers and their records,
 `review.md` for the review list and the run record, and `verify_app.md` for the verification
 screen this application opens.
 

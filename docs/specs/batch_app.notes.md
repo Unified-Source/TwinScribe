@@ -158,7 +158,7 @@ speakers reported nothing. Now:
 - The quick and careful levels: their detectors are not fetched on this machine.
 - Speed. Under emulation the pipeline took about as long as the audio for a 143 second file
   with the model loads included, and the run records flagged other load on the machine. The
-  design document rules out quoting any throughput figure from this machine; the lab hardware
+  design record rules out quoting any throughput figure from this machine; the lab hardware
   measures speed.
 - `tools/build_portable.py` was run in `--dry-run` form only; no portable folder was assembled.
 - The Word document was checked as well-formed OOXML and read back through a Word library; it
@@ -259,7 +259,7 @@ A request to improve the accuracy of the speaker labels. What this machine can m
 limited: the synthesised fixtures use two of the operating system's voices, which the
 embeddings separate almost perfectly (DER 1.7 per cent on the scene fixture, all of it missed
 speech at turn edges, no confusion), so no change to the clustering can be shown to help or
-hurt here. The design document's finding stands: labelling is the weakest part of the system,
+hurt here. The design record's finding stands: labelling is the weakest part of the system,
 its worst case (quiet and overlapped speakers) is structural, and the honest measurement needs
 the public corpora on the lab hardware. What was done is therefore what can be shown correct
 without a corpus:
