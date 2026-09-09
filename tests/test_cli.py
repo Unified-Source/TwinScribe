@@ -135,3 +135,32 @@ def test_export_renders_beside_the_document(tmp_path: Path, capsys: pytest.Captu
     assert "rendered meeting.txt, meeting.vtt, meeting.transcript.json" in capsys.readouterr().out
     assert (out / "meeting.vtt").read_text(encoding="utf-8").startswith("WEBVTT")
     assert (out / "meeting.transcript.json").is_file() and not (out / "meeting.docx").exists()
+
+
+def test_fetch_models_command(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    from twinscribe import fetch as fetch_module
+
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_fetch(specs, root, progress=None, cancel=None, log=None):
+        calls.append(([spec.key for spec in specs], Path(root)))
+        if log is not None:
+            log("A model: downloading a file")
+        if progress is not None:
+            progress(fetch_module.Progress(specs[0].key, "a file", 50, 100, 0, len(specs)))
+        make_models(Path(root))
+        return {}
+
+    monkeypatch.setattr(fetch_module, "fetch_specs", fake_fetch)
+    parser = cli.build_parser()
+    args = parser.parse_args(["fetch-models", "--only", "silero-vad", "--level", "careful"])
+    assert args.command == "fetch-models" and args.only == ["silero-vad"] and args.level == ["careful"]
+    assert parser.parse_args(["fetch-models"]).level == ["standard"]
+
+    assert cli.main(["fetch-models", "--root", str(tmp_path / "store")]) == 0
+    out = capsys.readouterr().out
+    assert len(calls) == 1 and calls[0][1] == tmp_path / "store"
+    assert "parakeet-tdt-0.6b-v2-int8" in calls[0][0] and "whisper-large-v3-turbo-ct2" in calls[0][0]
+    assert "fetching 6 model(s), about 2.4 GB" in out and "Attribution required" in out and "quality levels:" in out
+    assert cli.main(["fetch-models", "--root", str(tmp_path / "store")]) == 0
+    assert "nothing to fetch" in capsys.readouterr().out and len(calls) == 1

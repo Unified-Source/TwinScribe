@@ -49,8 +49,9 @@ build carries the ONNX detector only, because CTranslate2 publishes no wheel for
 adds the CUDA runtime packages (cuBLAS and cuDNN) so that CTranslate2 can use an NVIDIA
 device with nothing installed; `--bundle-ffmpeg` adds the imageio-ffmpeg package as the
 decoder instead of a copied executable. `--dry-run` prints the plan without downloading
-anything. The tool is not part of the package and is the one place that reaches the network,
-together with `tools/fetch_models.py`.
+anything. The tool is not part of the package. Inside the package, the fetch of the models
+(`twinscribe/fetch.py`, behind the `fetch-models` command, the window's Get models dialog and
+`tools/fetch_models.py`) is the only code that reaches the network, and only when asked.
 
 On Linux and macOS the equivalent is a virtual environment with the same extras
 (`pip install .[engines,app]`, plus `cuda` or `ffmpeg` as wanted) and the models folder
@@ -58,9 +59,10 @@ beside it; the launchers are one-line shell scripts setting the same three varia
 
 ## The models
 
-`tools/fetch_models.py --root models` fetches every catalogue model from the sources the
-catalogue names (or `--only <key>` for some), extracts archive members, records the digest,
-size, URL, revision and licence of every file in `models/models.lock.json`, and skips files
+`python -m twinscribe fetch-models --root models` fetches what the Standard level lacks (other
+levels with `--level`, named models with `--only`); `tools/fetch_models.py --root models` fetches
+every catalogue model (or `--only <key>` for some). Both extract archive members, record the digest,
+size, URL, revision and licence of every file in `models/models.lock.json`, and skip files
 already present whose digest matches the lock. `tools/fetch_models.py --root models --verify`
 digests the store against the lock without fetching; `twinscribe check --verify` does the same
 from the package.

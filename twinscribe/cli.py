@@ -74,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--formats", nargs="+", default=list(DEFAULT_FORMATS), choices=[key for key, _, _ in FORMATS],
                         help="what to write (default: text docx srt)")
 
+    fetch = commands.add_parser("fetch-models", help="download the models a quality level needs into the store and pin their digests")
+    fetch.add_argument("--root", type=Path, default=None, help="models root folder (default: the store in use, or a folder beside a frozen build)")
+    fetch.add_argument("--level", nargs="+", default=["standard"], choices=[p.name for p in PROFILES], help="quality levels to complete (default: standard)")
+    fetch.add_argument("--only", nargs="*", default=None, help="catalogue keys to fetch instead of levels")
+
     verify = commands.add_parser("verify", help="open the verification screen for a review set")
     verify.add_argument("review_set", type=Path)
     verify.add_argument("--dark", action="store_true")
@@ -239,6 +244,48 @@ def command_run(args: argparse.Namespace) -> int:
     return 0 if not result.failures else 1
 
 
+def command_fetch_models(args: argparse.Namespace) -> int:
+    """Fetch what the chosen levels lack (or the named models) and report the store afterwards."""
+    from twinscribe.fetch import Cancelled, Progress, fetch_specs, missing_for_levels, proposed_root
+
+    models = find_models(args.root)
+    root = Path(args.root) if args.root is not None else proposed_root(models)
+    if args.only:
+        from twinscribe.models import spec_for
+
+        specs = [spec_for(key) for key in args.only]
+    else:
+        specs = missing_for_levels(args.level, find_models(root))
+    if not specs:
+        print(f"nothing to fetch: {', '.join(args.level)} complete under {root}")
+        return 0
+    total_mb = sum(spec.size_mb for spec in specs)
+    size = f"{total_mb / 1000:.1f} GB" if total_mb >= 1000 else f"{total_mb} MB"
+    print(f"fetching {len(specs)} model(s), about {size}, into {root}")
+    last: dict[str, int] = {}
+
+    def show(progress: Progress) -> None:
+        percent = int(100 * progress.fraction) if progress.fraction is not None else -1
+        if last.get(progress.file) != percent:
+            last[progress.file] = percent
+            size = f"{progress.done_bytes / 1e6:.0f} MB" if percent < 0 else f"{percent:3d}%"
+            print(f"\r  {min(progress.files_done + 1, progress.files_total)}/{progress.files_total} {progress.key}/{progress.file} {size}", end="", flush=True)
+
+    try:
+        fetch_specs(specs, root, progress=show, log=lambda text: print("\n" + text, end=""))
+    except Cancelled:
+        print("\ncancelled")
+        return 1
+    print()
+    store = find_models(root)
+    print(store.describe())
+    print("quality levels:  " + (", ".join(p.name for p in available_profiles(store)) or "none"))
+    print("Attribution required by the licences of the models fetched:")
+    for spec in specs:
+        print(f"  {spec.title}: {spec.credit} ({spec.licence})")
+    return 0
+
+
 def command_export(args: argparse.Namespace) -> int:
     """Write text, Word and subtitles again beside each transcript document."""
     status = 0
@@ -281,6 +328,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return command_check(args)
     if args.command == "export":
         return command_export(args)
+    if args.command == "fetch-models":
+        return command_fetch_models(args)
     if args.command == "verify":
         from twinscribe.app.verify import main as verify_main
 

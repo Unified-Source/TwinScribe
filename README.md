@@ -67,13 +67,16 @@ yet done with progress per file. While a recording is being transcribed its line
 they are decoded; they can be read without being pulled to the newest line, clicked to move
 the playhead, and played from. The number of speakers can be given when it is known; by
 default the count comes from clustering, so a speaker the models cannot separate is missing
-from the labels, where the word counts show it, rather than hidden inside another. Nothing in
-the package reaches the network.
+from the labels, where the word counts show it, rather than hidden inside another. The one
+thing in the package that reaches the network is the fetch of the models, and it runs only when
+asked: the Get models dialog the window offers while no quality level is complete, or the
+`fetch-models` command.
 
 ```
 python -m twinscribe app [recordings or folders]
 python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto] [--speakers N]
 python -m twinscribe check [--verify]
+python -m twinscribe fetch-models [--level standard careful] [--root FOLDER]
 python -m twinscribe export <transcript.json>
 python -m twinscribe verify <review.json>
 ```
@@ -138,7 +141,7 @@ writes the outputs again; the engine's words are never altered.
 To do the same: fetch the models once, open the window on a folder, press Transcribe.
 
 ```
-python tools/fetch_models.py --root models
+python -m twinscribe fetch-models
 python -m twinscribe app <folder with the recordings>
 ```
 
@@ -155,21 +158,27 @@ place; none needs administrator rights.
    [docs/Portable_Layout.md](docs/Portable_Layout.md).
 2. **The executables** (Windows): unzip `twinscribe-win64.zip` and double-click
    `twinscribe\twinscribe-app.exe`; `twinscribe\twinscribe.exe` is the command line. The
-   folder carries every library and the decoder; put a fetched `models` folder beside the
-   executables (or point `TWINSCRIBE_MODELS` at one, or choose it in Settings), and a `home`
-   folder beside them makes the copy portable. `tools/build_exe.py` builds it with PyInstaller
-   from `tools/twinscribe.spec`.
+   folder carries every library and the decoder. On first start the window offers to fetch the
+   models of the Standard level (about 2.4 GB) from the sources the catalogue names into a
+   `models` folder beside the executables; `twinscribe.exe fetch-models` does the same from the
+   command line, and a fetched `models` folder can instead be put beside the executables, named
+   by `TWINSCRIBE_MODELS`, or chosen in Settings. A `home` folder beside them makes the copy
+   portable. The executables are not signed, so Windows may warn that they come from an unknown
+   publisher. `tools/build_exe.py` builds the folder with PyInstaller from `tools/twinscribe.spec`.
 3. **From source** (Windows, Linux, macOS): Python 3.11 or later, then
 
    ```
    pip install .[engines,app,ffmpeg]        # add ,cuda on Windows or Linux with an NVIDIA device
-   python tools/fetch_models.py --root models
+   python -m twinscribe fetch-models        # or let the window offer it on first start
    python -m twinscribe app
    ```
 
-The models are fetched once, by `tools/fetch_models.py`, from the sources the catalogue names,
-and pinned by digest; `python -m twinscribe check --verify` confirms a store. Which platforms
-and accelerators are covered is in [docs/Platforms.md](docs/Platforms.md).
+![The models dialog on first start: the six models of the Standard level with their sizes, licences and sources, and the folder they go to](docs/images/get-models.png)
+
+The models are fetched once, by the window's Get models dialog, by `python -m twinscribe
+fetch-models` or by `tools/fetch_models.py`, from the sources the catalogue names, and pinned by
+digest; `python -m twinscribe check --verify` confirms a store. Which platforms and accelerators
+are covered is in [docs/Platforms.md](docs/Platforms.md).
 
 ## Components and licences
 
