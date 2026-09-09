@@ -58,6 +58,7 @@ from twinscribe import __version__
 from twinscribe.app.app_icon import app_icon, app_pixmap
 from twinscribe.app.export_dialog import ExportDialog
 from twinscribe.app.history_dialog import HistoryDialog
+from twinscribe.app.models_dialog import ModelsDialog
 from twinscribe.app.icons import make_icon
 from twinscribe.app.job_status import JobStatusCard
 from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
@@ -403,6 +404,12 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(speakers_label)
         top_layout.addWidget(self.speakers_box)
 
+        self.models_button = QPushButton("Get models", top)
+        self.models_button.setObjectName("primary")
+        self.models_button.setToolTip("Fetch the models a quality level needs; shown while no level is complete")
+        self.models_button.clicked.connect(lambda _checked=False: self.open_models())
+        self.models_button.hide()
+        top_layout.addWidget(self.models_button)
         self.transcribe_button = QPushButton("Transcribe", top)
         self.transcribe_button.setObjectName("primary")
         # The clicked signal carries a checked flag; it must not reach the rows argument.
@@ -903,6 +910,38 @@ class MainWindow(QMainWindow):
         window.show()
         self._review_window = window
 
+    def needs_models(self) -> bool:
+        """True while no quality level is complete although a detector library is installed."""
+        return self.selected_profile() is None and any(self._backends.values())
+
+    def open_models(self, modal: bool = True) -> ModelsDialog:
+        """The models dialog; a fetch that ended is read into the store and the levels refreshed."""
+        dialog = ModelsDialog(self.models, self, explicit=bool(self.settings.models_dir))
+        dialog.fetched.connect(self._on_models_fetched)
+        if modal:
+            dialog.exec()
+            dialog.deleteLater()
+        else:
+            dialog.show()
+        return dialog
+
+    def _on_models_fetched(self, root: object) -> None:
+        """Remember a folder other than the store in use, read the store again and say what it offers."""
+        chosen = Path(str(root))
+        if chosen.resolve() != self.models.root.resolve():
+            self.settings.models_dir = str(chosen)
+        self.models = find_models(self.settings.models_dir or None)
+        self._refresh_quality_box()
+        try:
+            save_settings(self.settings)
+        except OSError:
+            pass
+        levels = available_profiles(self.models, self._backends)
+        if levels:
+            self.set_status("Models in place; quality levels: " + ", ".join(p.title for p in levels) + ".")
+        else:
+            self.set_status(f"No quality level is complete yet under {self.models.root}.")
+
     def open_history(self, modal: bool = True) -> HistoryDialog:
         """The history dialog; recordings chosen there come back into the library."""
         dialog = HistoryDialog(self.theme, self, author=self.settings.author)
@@ -946,16 +985,19 @@ class MainWindow(QMainWindow):
             self.quality_box.setCurrentIndex(wanted if wanted >= 0 else self.quality_box.findData("standard") if self.quality_box.findData("standard") >= 0 else 0)
             self.quality_box.setEnabled(True)
             self.quality_box.setToolTip(str(self.models.root))
+            self.models_button.hide()
         else:
             self.quality_box.addItem("No models", None)
             self.quality_box.setEnabled(False)
             if not any(self._backends.values()):
                 self.quality_box.setToolTip("No detector library is installed; install the engines extra.")
+                self.models_button.hide()
             else:
                 self.quality_box.setToolTip(
                     f"No complete model set under {self.models.root} for the installed libraries. "
-                    "Open Settings to choose the folder."
+                    "Press Get models to fetch one, or open Settings to choose the folder."
                 )
+                self.models_button.show()
         self.quality_box.blockSignals(False)
         self._refresh_transcribe_button()
 
@@ -984,7 +1026,7 @@ class MainWindow(QMainWindow):
         if not pending:
             self.transcribe_button.setToolTip("Every recording in the library has been transcribed")
         elif self.selected_profile() is None:
-            self.transcribe_button.setToolTip("No complete model set was found; open Settings")
+            self.transcribe_button.setToolTip("No complete model set was found; press Get models or open Settings")
         else:
             noun = "recording" if len(pending) == 1 else "recordings"
             self.transcribe_button.setToolTip(f"Transcribe {len(pending)} {noun} not yet done")
@@ -998,11 +1040,14 @@ class MainWindow(QMainWindow):
             return False
         profile = self.selected_profile()
         if profile is None:
-            QMessageBox.information(
-                self,
-                "No models",
-                f"No complete model set was found under\n{self.models.root}\n\nOpen Settings to choose the models folder.",
-            )
+            if any(self._backends.values()):
+                self.open_models()
+            else:
+                QMessageBox.information(
+                    self,
+                    "No detector library",
+                    "No detector library is installed; install the engines extra and start again.",
+                )
             return False
         plan = self._plan_override
         if plan is None:
@@ -1516,6 +1561,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.select is not None:
         window.library_view.setCurrentIndex(window.library_model.index(args.select, 0))
     window.show()
+    if args.shot is None and window.needs_models():
+        QTimer.singleShot(250, lambda: window.open_models())
     if args.seek is not None:
         QTimer.singleShot(400, lambda: window.seek(float(args.seek)))
     if args.play:

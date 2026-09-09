@@ -76,6 +76,7 @@ class ModelSpec:
     sources: tuple[Source, ...]
     note: str = ""
     backend: str = ""
+    size_mb: int = 0  # approximate download size, for a person deciding whether to fetch
 
 
 def hub_sources(repo: str, files: tuple[str, ...], revision: str = "main") -> tuple[Source, ...]:
@@ -126,6 +127,7 @@ def _onnx_whisper_files(stem: str) -> tuple[str, ...]:
 CATALOGUE: tuple[ModelSpec, ...] = (
     ModelSpec(
         key=KEY_PARAKEET_V2,
+        size_mb=660,
         role=ROLE_PUBLISHER,
         title="NVIDIA Parakeet TDT 0.6B v2, int8 ONNX export",
         licence="CC BY 4.0",
@@ -139,6 +141,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_TURBO,
+        size_mb=1620,
         role=ROLE_DETECTOR,
         title="Whisper large-v3-turbo, CTranslate2 conversion",
         licence="MIT",
@@ -150,6 +153,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_DISTIL,
+        size_mb=1520,
         role=ROLE_DETECTOR,
         title="Distil-Whisper large-v3, CTranslate2 conversion",
         licence="MIT",
@@ -161,6 +165,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_LARGE,
+        size_mb=3090,
         role=ROLE_DETECTOR,
         title="Whisper large-v3, CTranslate2 conversion",
         licence="MIT",
@@ -172,6 +177,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_TURBO_ONNX,
+        size_mb=900,
         role=ROLE_DETECTOR,
         title="Whisper large-v3-turbo, int8 ONNX export",
         licence="MIT",
@@ -185,6 +191,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_DISTIL_ONNX,
+        size_mb=800,
         role=ROLE_DETECTOR,
         title="Distil-Whisper large-v3, int8 ONNX export",
         licence="MIT",
@@ -199,6 +206,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_WHISPER_LARGE_ONNX,
+        size_mb=1600,
         role=ROLE_DETECTOR,
         title="Whisper large-v3, int8 ONNX export",
         licence="MIT",
@@ -212,6 +220,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_SILERO_VAD,
+        size_mb=1,
         role=ROLE_VAD,
         title="Silero voice activity detector",
         licence="MIT",
@@ -221,6 +230,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_SEGMENTATION,
+        size_mb=6,
         role=ROLE_SEGMENTATION,
         title="pyannote segmentation-3.0, ONNX export",
         licence="MIT",
@@ -233,6 +243,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_EMBEDDING,
+        size_mb=100,
         role=ROLE_EMBEDDING,
         title="NVIDIA TitaNet-large speaker embeddings, ONNX export",
         licence="CC BY 4.0",
@@ -248,6 +259,7 @@ CATALOGUE: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         key=KEY_AUDIO_TAGGER,
+        size_mb=11,
         role=ROLE_TAGGER,
         title="CED-mini audio tagger, int8 ONNX export",
         licence="Apache-2.0",

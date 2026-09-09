@@ -21,9 +21,11 @@ they are absolute.
   (`faster-whisper`, `sherpa-onnx`) are imported lazily inside the functions that need them,
   so the package imports cleanly without them and tests can skip.
 - `PySide6` is imported only under `twinscribe/app/`.
-- No network access at runtime anywhere in the package. Model loading is by local directory
-  path. The environment variables that keep Hugging Face tooling offline are set before any
-  engine import.
+- No network access at runtime anywhere in the package, with one exception: `twinscribe/fetch.py`
+  fetches the catalogue models, on an explicit action only (the window's Get models dialog, the
+  `fetch-models` command), and records every file in the lock. The engines never reach the
+  network: model loading is by local directory path, and the environment variables that keep
+  Hugging Face tooling offline are set before any engine import.
 - Deterministic where possible; every timing is recorded beside what was timed.
 
 ## Writing
