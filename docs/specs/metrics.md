@@ -1,6 +1,6 @@
 # Specification: text normalisation and metrics
 
-Read `CONVENTIONS.md` first, then sections 2, 4 and 7 of `../Design_and_Findings_2026-09-06.md`.
+Read `CONVENTIONS.md` first. The design record that sets these metrics is held outside the repository.
 
 Deliver the package `twinscribe/metrics/` and `twinscribe/text/`, with tests under
 `tests/test_text.py`, `tests/test_align.py`, `tests/test_diarization.py`,
@@ -101,7 +101,7 @@ labels (both sides up to six speakers; raise `ValueError` beyond that with a cle
 Miss is reference speech with fewer hypothesis speakers than reference speakers; false alarm
 the reverse; confusion the speech where counts match but labels do not under the mapping.
 `unmatched_ref` names any reference speaker whose mapped hypothesis label shares no time with
-it, or which received no label; the design document explains why this must be surfaced.
+it, or which received no label; the design record explains why this must be surfaced.
 
 `jer` is the Jaccard error rate: for each reference speaker under the optimal mapping, one
 minus the intersection over union of its time with its mapped hypothesis speaker's time,

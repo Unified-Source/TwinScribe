@@ -68,4 +68,4 @@ backend.
   BufferedMedia. `setSource(QUrl())` on close returns it to NoMedia with no error.
 - `QWidget.grab()` at 800 ms after `show()` produced a complete rendering for `--shot` in both
   palettes on the real backend. Under the offscreen platform every glyph is a box, as the design
-  document warns; the module docstring records this.
+  record warns; the module docstring records this.

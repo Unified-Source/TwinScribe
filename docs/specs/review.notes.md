@@ -85,12 +85,12 @@ Deviations from `review.md`, and what the load probe found on the platform it wa
 
 - `LoadVerdict` (other-load cores, busy flag, mains flag, threshold) and
   `verdict(before, after, threshold_cores)` are additions; they are the "load verdict" that
-  `RunRecord` carries and that section 7 of the design document calls the contention
+  `RunRecord` carries and that the design record's section on contention calls the contention
   verdict.
 - `busy` is `True` when the other-load figure is strictly greater than `threshold_cores`.
 - `other_load` clamps at 0.0: counter granularity can make the process delta exceed the
   system delta by a tick.
-- The "idle baseline sampled just before the cell" in section 7 of the design document is
+- The "idle baseline sampled just before the cell" in the design record's section on contention is
   not a separate subtraction here. `other_load` already isolates other processes' CPU time
   through the process counter; a caller who wants a background baseline takes a snapshot
   pair before the cell and compares the two figures.

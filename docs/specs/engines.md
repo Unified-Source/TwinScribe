@@ -1,7 +1,7 @@
 # Specification: audio and engines
 
-Read `CONVENTIONS.md` first, then sections 1 to 5 and 10 of
-`../Design_and_Findings_2026-09-06.md`.
+Read `CONVENTIONS.md` first. The design record this specification follows is held outside
+the repository.
 
 Deliver `twinscribe/audio.py` and `twinscribe/engines/` with tests under
 `tests/test_audio.py` and `tests/test_engines_logic.py`. The engine libraries are not
@@ -49,7 +49,7 @@ timestamps on, compression ratio threshold 2.4, log-probability threshold -1.0, 
 temperature ladder) and `benchmark` (beam 1, voice filter on with 500 ms minimum silence,
 conditioning on, word timestamps off); for the transducer, `vad` (Silero voice detection,
 threshold 0.5, minimum silence 0.5 s, minimum speech 0.25 s, maximum speech 20 s, 512-sample
-windows, greedy search). The design document says why both Whisper presets exist.
+windows, greedy search). Both Whisper presets are kept because the design measured both.
 
 ## 3. `twinscribe/engines/whisper_ct2.py`
 
