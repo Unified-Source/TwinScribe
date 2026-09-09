@@ -182,3 +182,14 @@ lock. Nothing in the three wrappers needed changing to run live.
     music at a quarter of the level, so the speech family includes the synthesiser class and
     the keep threshold sits at 0.3; a one-word utterance of a third of a second tagged Music at
     0.47, which is why no utterance under one and a half seconds is judged.
+
+## The speaker stage and the window
+
+- Found by the owner on the first public build: at the speaker stage the window stopped
+  answering until the stage ended. Measured in the lab with the diarizer in a thread and the
+  main thread ticking every 50 ms over a two-minute cut: the stage took 15.8 s and the main
+  thread's longest gap was 15.3 s, so the library holds the interpreter lock for the whole
+  call. The pipeline now labels speakers through `diarize_in_child`, a child process started
+  afresh per call; the caller's thread waits on a pipe and the window keeps answering. The
+  cost is the child's start and imports, about a second, on top of the model load the call
+  already made. Cancelling during the stage still waits for it to end, as before.

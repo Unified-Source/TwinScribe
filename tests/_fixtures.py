@@ -269,3 +269,15 @@ def make_document(
         overview=[0, 50, 100, 50] * 300,
         produced_utc="2026-01-01T00:00:00+00:00",
     )
+
+
+def child_echo(value: object, times: int = 1) -> tuple[int, object]:
+    """For the child-process tests: the process id it ran in and its arguments, repeated."""
+    import os
+
+    return os.getpid(), [value] * times
+
+
+def child_fail(message: str) -> None:
+    """For the child-process tests: raises with the message given."""
+    raise ValueError(message)

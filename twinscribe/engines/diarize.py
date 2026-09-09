@@ -178,3 +178,23 @@ def diarize(
         versions=library_versions(sherpa_onnx),
         settings=settings,
     )
+
+
+def diarize_in_child(
+    audio_path: str | os.PathLike[str],
+    segmentation_model: str | os.PathLike[str],
+    embedding_model: str | os.PathLike[str],
+    threads: int | None = None,
+    num_speakers: int | None = None,
+    threshold: float = 0.5,
+    provider: str = "cpu",
+) -> Diarization:
+    """`diarize` run in a child process: the library holds the interpreter lock for the whole
+    call, so a window whose thread shares the process would stop answering for as long as the
+    labelling takes."""
+    from twinscribe.engines.isolate import run_in_child_process
+
+    return run_in_child_process(
+        diarize, os.fspath(audio_path), os.fspath(segmentation_model), os.fspath(embedding_model),
+        threads=threads, num_speakers=num_speakers, threshold=threshold, provider=provider,
+    )

@@ -111,3 +111,13 @@ a library or model directory is absent, with the reason in the skip message.
 
 `docs/specs/engines.notes.md`: deviations, and which functions could not be exercised because
 a library or model was absent.
+
+## 8. The speaker stage in a child process
+
+`twinscribe/engines/isolate.py` runs a function in a process started afresh and returns its
+result, the caller's thread waiting on a pipe. `diarize_in_child` is `diarize` run that way,
+and it is the diarizer the pipeline uses by default: the speaker library holds the interpreter
+lock for the whole of a labelling call, which runs for minutes on a processor, so a window
+whose thread shares the process stops answering until it ends. The function and its arguments
+travel by pickling; an exception in the child is raised again in the caller. The frozen
+executables call `multiprocessing.freeze_support()` first thing, which the child start needs.

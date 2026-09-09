@@ -242,7 +242,7 @@ def default_engines() -> Engines:
     return Engines(
         publisher=parakeet.transcribe,
         detector=whisper_ct2.transcribe,
-        diarizer=diarize.diarize,
+        diarizer=diarize.diarize_in_child,
         detector_onnx=whisper_onnx.transcribe,
         tagger=tagging.tag_regions,
     )
