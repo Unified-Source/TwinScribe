@@ -37,14 +37,27 @@ def default_app_home(platform_name: str | None = None, environ: dict[str, str] |
     return home / f".{APP_FOLDER}"
 
 
+def frozen_sibling(name: str) -> Path | None:
+    """`<folder of the executable>/<name>` when this is a frozen build and that folder exists,
+    else None; a folder unpacked anywhere then carries its own models and home."""
+    if not getattr(sys, "frozen", False):
+        return None
+    candidate = Path(sys.executable).resolve().parent / name
+    return candidate if candidate.is_dir() else None
+
+
 def app_home() -> Path:
     """Folder for settings, decoded work files and batch records; created when absent.
 
     The environment variable named by HOME_ENV wins, so a portable copy can point at a folder
-    beside itself. Otherwise the platform's per-user application data folder is used.
+    beside itself; a frozen build with a home folder beside its executable uses that.
+    Otherwise the platform's per-user application data folder is used.
     """
     override = os.environ.get(HOME_ENV)
-    base = Path(override) if override else default_app_home()
+    if override:
+        base = Path(override)
+    else:
+        base = frozen_sibling("home") or default_app_home()
     base.mkdir(parents=True, exist_ok=True)
     return base
 
