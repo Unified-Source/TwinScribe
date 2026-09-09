@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from twinscribe import __version__
+from twinscribe.audio import find_ffmpeg
 from twinscribe.hardware import (
     BACKEND_CT2,
     BACKEND_ONNX,
@@ -143,9 +144,14 @@ class LiveLine:
 
 def command_check(args: argparse.Namespace) -> int:
     """Print what the machine offers and what the store holds."""
-    ffmpeg = shutil.which("ffmpeg")
+    # The decoder as the pipeline resolves it: the search path, a bin folder beside the package,
+    # or the executable a bundled imageio-ffmpeg carries.
+    try:
+        ffmpeg: str | None = find_ffmpeg()
+    except FileNotFoundError:
+        ffmpeg = None
     print(f"TwinScribe {__version__}")
-    print(f"ffmpeg:          {ffmpeg or 'not found on the search path'}")
+    print(f"ffmpeg:          {ffmpeg or 'not found: not on the search path and no bundled decoder'}")
     for module, extra in (("faster_whisper", "engines"), ("sherpa_onnx", "engines"), ("PySide6", "app")):
         state = "installed" if _module_present(module) else f"not installed (extra '{extra}')"
         print(f"{module + ':':<17}{state}")
