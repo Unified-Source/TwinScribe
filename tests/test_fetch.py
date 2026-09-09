@@ -1,6 +1,6 @@
-"""Tests for the fetch module, against local file sources: plain files and an archive member,
-the lock, skipping what is present and pinned, progress reports, cancellation leaving no
-half file, the level plans, and the proposed root for a first fetch."""
+"""Tests for the fetch module, against local file sources: plain files and archive members,
+the lock, skipping what is present and pinned, progress reports by stage, cancellation leaving
+no half file, the level plans, and the proposed root for a first fetch."""
 
 from __future__ import annotations
 
@@ -12,8 +12,12 @@ import pytest
 
 from twinscribe import fetch
 from twinscribe.fetch import (
+    STAGE_DONE,
+    STAGE_DOWNLOAD,
+    STAGE_EXTRACT,
     Cancelled,
     Progress,
+    extract_members,
     fetch_specs,
     missing_for_levels,
     missing_sources,
@@ -42,7 +46,7 @@ def _file_url(path: Path) -> str:
 
 @pytest.fixture
 def upstream(tmp_path: Path) -> dict[str, Path]:
-    """A plain file and an archive holding two members under a top folder, as upstream serves them."""
+    """A plain file and an archive holding three members under a top folder, as upstream serves them."""
     up = tmp_path / "upstream"
     up.mkdir()
     plain = up / "model.bin"
@@ -50,7 +54,9 @@ def upstream(tmp_path: Path) -> dict[str, Path]:
     inner = up / "pack" / "top"
     inner.mkdir(parents=True)
     (inner / "encoder.onnx").write_bytes(b"encoder " * 2000)
+    (inner / "decoder.onnx").write_bytes(b"decoder " * 500)
     (inner / "tokens.txt").write_text("a\nb\n", encoding="utf-8")
+    (inner / "README").write_text("not wanted\n", encoding="utf-8")
     archive = up / "pack.tar.bz2"
     with tarfile.open(archive, "w:bz2") as tar:
         tar.add(inner, arcname="top")
@@ -63,33 +69,46 @@ def _specs(upstream: dict[str, Path]) -> list[ModelSpec]:
         required=("model.bin",), sources=(Source(url=_file_url(upstream["plain"]), target="model.bin"),), backend="ct2", size_mb=1,
     )
     archive_name = upstream["archive"].name
+    url = _file_url(upstream["archive"])
     packed = ModelSpec(
         key="packed-model", role="publisher", title="A packed model", licence="CC BY 4.0", credit="tests",
-        required=("encoder.onnx", "tokens.txt"),
+        required=("encoder.onnx", "decoder.onnx", "tokens.txt"),
         sources=(
-            Source(url=_file_url(upstream["archive"]), target="encoder.onnx", archive=archive_name),
-            Source(url=_file_url(upstream["archive"]), target="tokens.txt", archive=archive_name),
+            Source(url=url, target="encoder.onnx", archive=archive_name),
+            Source(url=url, target="decoder.onnx", archive=archive_name),
+            Source(url=url, target="tokens.txt", archive=archive_name),
         ),
         size_mb=1,
     )
     return [plain, packed]
 
 
-def test_fetch_places_files_records_the_lock_and_reports(upstream: dict[str, Path], tmp_path: Path) -> None:
+def test_fetch_places_files_records_the_lock_and_reports_by_stage(upstream: dict[str, Path], tmp_path: Path) -> None:
     root = tmp_path / "store"
     seen: list[Progress] = []
     lines: list[str] = []
     lock = fetch_specs(_specs(upstream), root, progress=seen.append, log=lines.append)
     assert (root / "plain-model" / "model.bin").read_bytes() == upstream["plain"].read_bytes()
     assert (root / "packed-model" / "encoder.onnx").stat().st_size == 8 * 2000
+    assert (root / "packed-model" / "decoder.onnx").stat().st_size == 8 * 500
     assert (root / "packed-model" / "tokens.txt").read_text(encoding="utf-8") == "a\nb\n"
-    assert set(lock) == {"plain-model/model.bin", "packed-model/encoder.onnx", "packed-model/tokens.txt"}
+    assert not (root / "packed-model" / "README").exists()
+    assert set(lock) == {"plain-model/model.bin", "packed-model/encoder.onnx", "packed-model/decoder.onnx", "packed-model/tokens.txt"}
     assert lock["plain-model/model.bin"]["sha256"] == sha256_file(root / "plain-model" / "model.bin")
     assert lock["packed-model/tokens.txt"]["archive"] == upstream["archive"].name
     assert read_lock(root) == lock
-    assert seen and seen[-1].files_done == 3 and seen[-1].files_total == 3
-    assert any(p.file == "model.bin" and p.fraction is not None and p.fraction <= 1.0 for p in seen)
-    assert any("downloading" in line for line in lines)
+    # Four files: the plain one downloaded, the archive downloaded once under its own name,
+    # extraction reported as a stage, and every placed file reported as done in order.
+    done = [p for p in seen if p.stage == STAGE_DONE]
+    assert done[0].file == "model.bin" and [p.files_done for p in done] == [1, 2, 3, 4]
+    assert sorted(p.file for p in done[1:]) == ["decoder.onnx", "encoder.onnx", "tokens.txt"]
+    assert all(p.files_total == 4 and p.fraction is None for p in done)
+    downloads = [p for p in seen if p.stage == STAGE_DOWNLOAD]
+    assert {p.file for p in downloads} == {"model.bin", upstream["archive"].name}
+    assert all(p.fraction is not None and p.fraction <= 1.0 for p in downloads)
+    extracting = [p for p in seen if p.stage == STAGE_EXTRACT]
+    assert len(extracting) == 1 and extracting[0].file == upstream["archive"].name and extracting[0].files_done == 1
+    assert sum(1 for line in lines if "downloading" in line) == 2 and any("extracting 3 file(s)" in line for line in lines)
     assert not list(root.glob("twinscribe-fetch-*")) and not list(root.rglob("*.part"))
 
 
@@ -102,11 +121,31 @@ def test_present_and_pinned_files_are_skipped(upstream: dict[str, Path], tmp_pat
     seen: list[Progress] = []
     fetch_specs(specs, root, progress=seen.append)
     assert seen == [] and (root / "plain-model" / "model.bin").stat().st_mtime_ns == stamp
-    # A changed file is fetched again.
+    # A changed file is fetched again; a changed archive member alone means the archive again, one member out.
     (root / "plain-model" / "model.bin").write_bytes(b"corrupt")
+    (root / "packed-model" / "decoder.onnx").write_bytes(b"corrupt")
     assert [s.target for s in missing_sources(specs[0], root, read_lock(root))] == ["model.bin"]
-    fetch_specs(specs, root)
+    assert [s.target for s in missing_sources(specs[1], root, read_lock(root))] == ["decoder.onnx"]
+    seen = []
+    fetch_specs(specs, root, progress=seen.append)
     assert (root / "plain-model" / "model.bin").read_bytes() == upstream["plain"].read_bytes()
+    assert (root / "packed-model" / "decoder.onnx").stat().st_size == 8 * 500
+    assert [(p.file, p.files_done) for p in seen if p.stage == STAGE_DONE] == [("model.bin", 1), ("decoder.onnx", 2)]
+    assert [p.file for p in seen if p.stage == STAGE_DOWNLOAD and p.files_done == 1] == [upstream["archive"].name] * sum(1 for p in seen if p.stage == STAGE_DOWNLOAD and p.files_done == 1)
+
+
+def test_extract_members_reads_the_archive_once_and_names_what_is_missing(upstream: dict[str, Path], tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    order: list[str] = []
+    extract_members(upstream["archive"], {"tokens.txt": out / "t.txt", "encoder.onnx": out / "e.onnx"}, order.append)
+    # Members come in archive order, whatever the order asked for; the unwanted ones are skipped.
+    assert sorted(order) == ["encoder.onnx", "tokens.txt"]
+    assert (out / "e.onnx").stat().st_size == 8 * 2000 and (out / "t.txt").read_text(encoding="utf-8") == "a\nb\n"
+    with pytest.raises(FileNotFoundError, match="absent.bin"):
+        extract_members(upstream["archive"], {"absent.bin": out / "a.bin"})
+    with pytest.raises(Cancelled):
+        extract_members(upstream["archive"], {"decoder.onnx": out / "d.onnx"}, cancel=lambda: True)
+    assert not (out / "d.onnx").exists() and not list(out.glob("*.part"))
 
 
 def test_cancel_leaves_no_half_file(upstream: dict[str, Path], tmp_path: Path) -> None:
@@ -122,6 +161,13 @@ def test_download_removes_the_partial_on_failure(tmp_path: Path) -> None:
     with pytest.raises(Exception):
         fetch.download((tmp_path / "absent.bin").resolve().as_uri(), target)
     assert not target.exists() and not target.with_name("file.bin.part").exists()
+
+
+def test_progress_fraction_by_stage() -> None:
+    assert Progress("k", "f", 50, 100, 0, 3).fraction == 0.5
+    assert Progress("k", "f", 50, 0, 0, 3).fraction is None
+    assert Progress("k", "f", 0, 0, 0, 3, STAGE_EXTRACT).fraction is None
+    assert Progress("k", "f", 100, 100, 1, 3, STAGE_DONE).fraction is None
 
 
 def test_level_plans() -> None:
@@ -153,5 +199,9 @@ def test_proposed_root_prefers_the_store_then_the_executable_then_the_home(tmp_p
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "dist" / "twinscribe.exe"))
     (tmp_path / "dist").mkdir()
-    unwritable = find_models(tmp_path / "nowhere" / "\0bad" if sys.platform != "win32" else "?:/bad")
+    blocker = tmp_path / "blocker"
+    blocker.write_bytes(b"")
+    unwritable = find_models(blocker / "store")
     assert proposed_root(unwritable) == (tmp_path / "dist" / "models").resolve()
+    monkeypatch.setenv("TWINSCRIBE_MODELS", str(tmp_path / "named"))
+    assert proposed_root(find_models(None)) == tmp_path / "named"

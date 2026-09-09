@@ -31,15 +31,21 @@ and `Portable_Layout.md`, so a reader who relied on the old rule finds the new o
   file into place only when complete; any failure or cancellation removes the partial file.
   It returns the upstream revision when a header carries one (the Hugging Face commit, else
   the entity tag).
-- `extract_member(archive, name, target)` copies one member out of a tar archive by file
-  name, whatever top folder the archive uses.
+- `extract_members(archive, targets, written, cancel)` copies the wanted members out of a tar
+  archive by file name, whatever top folder the archive uses, in one streaming pass from start
+  to end, so a compressed archive is decompressed once however many members are wanted; each
+  member goes to a temporary name and is renamed when complete, and `written` is told its name.
 - `missing_sources(spec, root, lock)` names the files of a model that are absent or whose
   digest no longer matches the lock; `fetch_specs(specs, root, progress, cancel, log)`
   fetches those and only those, downloading each archive once into a temporary folder under
-  the root, writing the lock after every file so that an interrupted fetch keeps what it
-  finished, and removing the temporary folder at the end. It returns the lock.
+  the root and writing every wanted member of it in one pass, writing the lock after every file
+  so that an interrupted fetch keeps what it finished, and removing the temporary folder at the
+  end. It returns the lock.
 - `Progress` carries the model key, the file, the bytes so far and the total (or zero when
-  the source does not say), and the count of files done out of the files to fetch.
+  the source does not say), the count of files done out of the files to fetch, and a stage:
+  `download` while bytes of a file or an archive arrive (the archive under its own name),
+  `extract` while members are written out of an archive, `done` once a file is in place and
+  counted. The fraction is defined only while downloading.
 - `specs_for_level(name)` is the level's required models with its CTranslate2 detector and
   the audio tagger, in catalogue order; `missing_for_levels(names, store)` is what the store
   lacks of them; `proposed_root(store, explicit)` is where a first fetch goes: the store in
@@ -57,6 +63,7 @@ chosen levels lack with role, size, licence and source host, the credit as a too
 folder, editable and browsable; a summary line with the count and the total; Download,
 Cancel while running, Later. Download runs `fetch_specs` in a `QThread` that forwards
 progress and the outcome as signals: the bar shows the overall fraction across files (busy
+while extracting or
 when a size is unknown), the status line names the file. Done, cancelled and failed all end
 with the outcome in the status line, the controls enabled again, the table recomputed, and
 `fetched(root)` emitted so the window reads the store; a cancelled or failed fetch keeps what

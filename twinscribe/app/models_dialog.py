@@ -26,7 +26,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from twinscribe.fetch import Cancelled, Progress, fetch_specs, level_names, missing_for_levels, proposed_root
+from twinscribe.fetch import (
+    STAGE_DONE,
+    STAGE_EXTRACT,
+    Cancelled,
+    Progress,
+    fetch_specs,
+    level_names,
+    missing_for_levels,
+    proposed_root,
+)
 from twinscribe.models import ModelSet, ModelSpec, find_models
 from twinscribe.profiles import profile_for
 
@@ -237,13 +246,22 @@ class ModelsDialog(QDialog):
         return self._thread is not None
 
     def _on_progress(self, report: Progress) -> None:
+        total = max(1, report.files_total)
+        if report.stage == STAGE_DONE:
+            self.progress.setRange(0, 1000)
+            self.progress.setValue(int(round(1000 * report.files_done / total)))
+            self.status.setText(f"{report.files_done} of {report.files_total} in place: {report.key}/{report.file}")
+            return
         files = f"{min(report.files_done + 1, report.files_total)} of {report.files_total}"
-        if report.fraction is None:
+        if report.stage == STAGE_EXTRACT:
+            self.progress.setRange(0, 0)
+            self.status.setText(f"{files}: extracting {report.file}")
+        elif report.fraction is None:
             self.progress.setRange(0, 0)
             self.status.setText(f"{files}: {report.key}/{report.file}, {report.done_bytes / 1e6:.0f} MB")
         else:
             self.progress.setRange(0, 1000)
-            overall = (report.files_done + report.fraction) / max(1, report.files_total)
+            overall = (report.files_done + report.fraction) / total
             self.progress.setValue(int(round(1000 * overall)))
             self.status.setText(f"{files}: {report.key}/{report.file}, {int(round(100 * report.fraction))}%")
 

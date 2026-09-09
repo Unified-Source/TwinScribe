@@ -5,7 +5,8 @@ person asks for it: the first-run dialog's Download button, or the fetch-models 
 engines never do; they load from the store. Every file fetched is recorded in the lock with
 its digest, size, source, revision and licence, and a file already present with a digest
 matching the lock is not fetched again. A download goes to a temporary name and is renamed
-only when complete, so a cancelled or failed fetch leaves no half file behind.
+only when complete, so a cancelled or failed fetch leaves no half file behind. An archive is
+downloaded once and its wanted members are written in a single streaming pass.
 """
 
 from __future__ import annotations
@@ -42,6 +43,10 @@ CHUNK = 1 << 20
 USER_AGENT = "twinscribe-fetch/0.1"
 TIMEOUT_S = 60
 
+STAGE_DOWNLOAD = "download"
+STAGE_EXTRACT = "extract"
+STAGE_DONE = "done"
+
 
 class Cancelled(Exception):
     """Raised inside a fetch when the cancel callback says to stop."""
@@ -49,8 +54,13 @@ class Cancelled(Exception):
 
 @dataclass(frozen=True)
 class Progress:
-    """Where a fetch stands: the file being written and the bytes so far, and the count of
-    files done out of the files to fetch."""
+    """Where a fetch stands.
+
+    `stage` is "download" while bytes of `file` (a model file, or an archive) arrive, with the
+    bytes so far and the total when the source says it; "extract" while `file` is being written
+    out of an archive, with no byte counts; "done" once `file` is in place and counted in
+    `files_done`. `files_done` and `files_total` count the files to fetch.
+    """
 
     key: str
     file: str
@@ -58,11 +68,12 @@ class Progress:
     total_bytes: int
     files_done: int
     files_total: int
+    stage: str = STAGE_DOWNLOAD
 
     @property
     def fraction(self) -> float | None:
-        """The file's fraction, or None when its size is not known."""
-        if self.total_bytes <= 0:
+        """The file's fraction, or None when its size is not known or no bytes are moving."""
+        if self.stage != STAGE_DOWNLOAD or self.total_bytes <= 0:
             return None
         return min(1.0, self.done_bytes / self.total_bytes)
 
@@ -111,19 +122,53 @@ def download(
     return revision.strip('"') if revision else None
 
 
+def extract_members(
+    archive: Path,
+    targets: dict[str, Path],
+    written: Callable[[str], None] | None = None,
+    cancel: CancelFn | None = None,
+) -> None:
+    """Copy the wanted members out of a tar archive in one streaming pass, matching on the
+    file name inside any top folder; `written` is told each member's name once it is in place.
+
+    The archive is read once from start to end, which matters for compressed archives, where
+    seeking back means decompressing from the start again.
+    """
+    wanted = dict(targets)
+    with tarfile.open(archive, "r|*") as tar:
+        for member in tar:
+            if cancel is not None and cancel():
+                raise Cancelled(archive.name)
+            name = Path(member.name).name
+            if not member.isfile() or name not in wanted:
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            target = wanted.pop(name)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            partial = target.with_name(target.name + ".part")
+            try:
+                with extracted, open(partial, "wb") as handle:
+                    shutil.copyfileobj(extracted, handle)
+            except BaseException:
+                try:
+                    partial.unlink()
+                except OSError:
+                    pass
+                raise
+            os.replace(partial, target)
+            if written is not None:
+                written(name)
+            if not wanted:
+                return
+    if wanted:
+        raise FileNotFoundError(f"{', '.join(sorted(wanted))} not found inside {archive.name}")
+
+
 def extract_member(archive: Path, member_name: str, target: Path) -> None:
     """Copy one member out of a tar archive, matching on the file name inside any top folder."""
-    with tarfile.open(archive, "r:*") as tar:
-        for member in tar.getmembers():
-            if member.isfile() and Path(member.name).name == member_name:
-                extracted = tar.extractfile(member)
-                if extracted is None:
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with extracted, open(target, "wb") as handle:
-                    shutil.copyfileobj(extracted, handle)
-                return
-    raise FileNotFoundError(f"{member_name} not found inside {archive.name}")
+    extract_members(archive, {member_name: target})
 
 
 def present_and_pinned(target: Path, key: str, lock: dict[str, dict[str, Any]]) -> bool:
@@ -146,9 +191,10 @@ def fetch_specs(
 ) -> dict[str, dict[str, Any]]:
     """Fetch every file of the given models that the store lacks; returns the lock entries.
 
-    Archives are downloaded once into a temporary folder under the root and their members
-    extracted; the lock is written after every file, so an interrupted fetch keeps what it
-    finished.
+    A plain source is downloaded to its place. An archive is downloaded once into a temporary
+    folder under the root, reported under its own name, and every wanted member is written in
+    one pass and reported as it lands. The lock is written after every file, so an interrupted
+    fetch keeps what it finished.
     """
     base = Path(root)
     base.mkdir(parents=True, exist_ok=True)
@@ -156,39 +202,64 @@ def fetch_specs(
     say = log if log is not None else (lambda _text: None)
     wanted = [(spec, source) for spec in specs for source in missing_sources(spec, base, lock)]
     total = len(wanted)
-    done = 0
+    state = {"done": 0}
     downloads = Path(tempfile.mkdtemp(prefix="twinscribe-fetch-", dir=str(base)))
-    archives: dict[str, tuple[Path, str | None]] = {}
+
+    def report(stage: str, key: str, file: str, done_bytes: int = 0, total_bytes: int = 0) -> None:
+        if progress is not None:
+            progress(Progress(key, file, done_bytes, total_bytes, state["done"], total, stage))
+
+    def placed(spec: ModelSpec, source: Source, target: Path, revision: str | None) -> None:
+        key = f"{spec.key}/{source.target}"
+        lock[key] = lock_entry(spec, source, target, revision)
+        write_lock(base, lock)
+        state["done"] += 1
+        say(f"  {source.target}: {lock[key]['bytes'] / 1e6:.1f} MB, sha256 {lock[key]['sha256'][:16]}")
+        report(STAGE_DONE, spec.key, source.target, lock[key]["bytes"], lock[key]["bytes"])
+
+    finished: set[tuple[str, str]] = set()
     try:
         for spec, source in wanted:
+            if (spec.key, source.target) in finished:
+                continue
+            if cancel is not None and cancel():
+                raise Cancelled(f"{spec.key}/{source.target}")
             folder = base / spec.key
             folder.mkdir(parents=True, exist_ok=True)
-            target = folder / source.target
-            key = f"{spec.key}/{source.target}"
-
-            def report(done_bytes: int, total_bytes: int, _key: str = spec.key, _file: str = source.target) -> None:
-                if progress is not None:
-                    progress(Progress(_key, _file, done_bytes, total_bytes, done, total))
-
-            if cancel is not None and cancel():
-                raise Cancelled(key)
-            if source.archive is not None:
-                if source.archive not in archives:
-                    say(f"{spec.title}: downloading {source.archive}")
-                    archive_path = downloads / source.archive
-                    revision = download(source.url, archive_path, report, cancel)
-                    archives[source.archive] = (archive_path, revision)
-                archive_path, revision = archives[source.archive]
-                extract_member(archive_path, source.target, target)
-            else:
+            if source.archive is None:
                 say(f"{spec.title}: downloading {source.target}")
-                revision = download(source.url, target, report, cancel)
-            lock[key] = lock_entry(spec, source, target, revision)
-            write_lock(base, lock)
-            done += 1
-            say(f"  {source.target}: {lock[key]['bytes'] / 1e6:.1f} MB, sha256 {lock[key]['sha256'][:16]}")
-            if progress is not None:
-                progress(Progress(spec.key, source.target, lock[key]["bytes"], lock[key]["bytes"], done, total))
+                revision = download(
+                    source.url, folder / source.target,
+                    lambda done_bytes, total_bytes, _k=spec.key, _f=source.target: report(STAGE_DOWNLOAD, _k, _f, done_bytes, total_bytes),
+                    cancel,
+                )
+                placed(spec, source, folder / source.target, revision)
+                continue
+            # Every wanted member of this archive for this model, written in one pass.
+            missing_here = {s.target for owner, s in wanted if owner is spec}
+            members = [s for s in spec.sources
+                       if s.archive == source.archive and s.target in missing_here and (spec.key, s.target) not in finished]
+            say(f"{spec.title}: downloading {source.archive}")
+            archive_path = downloads / source.archive
+            revision = download(
+                source.url, archive_path,
+                lambda done_bytes, total_bytes, _k=spec.key, _a=source.archive: report(STAGE_DOWNLOAD, _k, _a, done_bytes, total_bytes),
+                cancel,
+            )
+            say(f"{spec.title}: extracting {len(members)} file(s) from {source.archive}")
+            report(STAGE_EXTRACT, spec.key, source.archive)
+            by_name = {m.target: m for m in members}
+
+            def written(name: str, _spec: ModelSpec = spec, _by_name: dict[str, Source] = by_name, _rev: str | None = revision) -> None:
+                member = _by_name[name]
+                placed(_spec, member, base / _spec.key / member.target, _rev)
+                finished.add((_spec.key, member.target))
+
+            extract_members(archive_path, {m.target: folder / m.target for m in members}, written, cancel)
+            try:
+                archive_path.unlink()
+            except OSError:
+                pass
     finally:
         shutil.rmtree(downloads, ignore_errors=True)
     return lock
@@ -258,8 +329,12 @@ def proposed_root(models: ModelSet | None = None, explicit: bool = False) -> Pat
 __all__ = [
     "Cancelled",
     "Progress",
+    "STAGE_DONE",
+    "STAGE_DOWNLOAD",
+    "STAGE_EXTRACT",
     "download",
     "extract_member",
+    "extract_members",
     "fetch_specs",
     "level_names",
     "missing_for_levels",

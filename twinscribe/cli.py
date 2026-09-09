@@ -246,7 +246,7 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_fetch_models(args: argparse.Namespace) -> int:
     """Fetch what the chosen levels lack (or the named models) and report the store afterwards."""
-    from twinscribe.fetch import Cancelled, Progress, fetch_specs, missing_for_levels, proposed_root
+    from twinscribe.fetch import STAGE_DONE, STAGE_EXTRACT, Cancelled, Progress, fetch_specs, missing_for_levels, proposed_root
 
     models = find_models(args.root)
     root = Path(args.root) if args.root is not None else proposed_root(models)
@@ -265,10 +265,12 @@ def command_fetch_models(args: argparse.Namespace) -> int:
     last: dict[str, int] = {}
 
     def show(progress: Progress) -> None:
+        if progress.stage == STAGE_DONE:
+            return
         percent = int(100 * progress.fraction) if progress.fraction is not None else -1
         if last.get(progress.file) != percent:
             last[progress.file] = percent
-            size = f"{progress.done_bytes / 1e6:.0f} MB" if percent < 0 else f"{percent:3d}%"
+            size = "extracting" if progress.stage == STAGE_EXTRACT else (f"{progress.done_bytes / 1e6:.0f} MB" if percent < 0 else f"{percent:3d}%")
             print(f"\r  {min(progress.files_done + 1, progress.files_total)}/{progress.files_total} {progress.key}/{progress.file} {size}", end="", flush=True)
 
     try:

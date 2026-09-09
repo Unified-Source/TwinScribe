@@ -21,7 +21,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from twinscribe.fetch import Cancelled, Progress, fetch_specs  # noqa: E402
+from twinscribe.fetch import STAGE_DONE, STAGE_EXTRACT, Cancelled, Progress, fetch_specs  # noqa: E402
 from twinscribe.models import CATALOGUE, STATUS_VERIFIED, spec_for, verify_store  # noqa: E402
 
 
@@ -46,10 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     last: dict[str, int] = {}
 
     def show(progress: Progress) -> None:
+        if progress.stage == STAGE_DONE:
+            return
         percent = int(100 * progress.fraction) if progress.fraction is not None else -1
         if last.get(progress.file) != percent:
             last[progress.file] = percent
-            size = f"{progress.done_bytes / 1e6:.1f} MB" if percent < 0 else f"{percent:3d}%"
+            size = "extracting" if progress.stage == STAGE_EXTRACT else (f"{progress.done_bytes / 1e6:.1f} MB" if percent < 0 else f"{percent:3d}%")
             print(f"\r    {progress.key}/{progress.file} {size}", end="", flush=True)
 
     try:

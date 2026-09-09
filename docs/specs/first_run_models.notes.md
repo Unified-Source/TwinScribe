@@ -29,6 +29,15 @@ Companion to `first_run_models.md`. Records what was built, what was checked, an
   against `file:` sources, the dialog with the fetch replaced by a stand-in that writes the
   store (done, cancelled, failed), the window's button and post-fetch refresh, and the command.
 
+- Found by the owner on the first public download, with the Standard and Careful levels chosen
+  (19 files): after the first archive had downloaded, the status read "2 of 19: ... encoder,
+  100%" and stayed there while the members were extracted one by one, each pass decompressing
+  the 640 MB archive from the start. An archive is now read once from start to end for every
+  wanted member, the download is reported under the archive's name, extraction is its own
+  stage with a busy bar, and a placed file is reported as done with the count it makes. Checked
+  against the real source for the two-member tagger archive and against a three-member
+  archive in the tests.
+
 ## Choices
 
 - Explicit action only. Nothing fetches on its own: the window offers the dialog once on
