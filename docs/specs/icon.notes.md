@@ -36,7 +36,9 @@ Companion to `icon.md`. Records what was built, what was checked, and what was l
 - The wordmark is not shipped as an image inside the program: the top bar sets it as text in
   the interface font, which follows the platform; only the documentation carries a rendered
   lockup, and that in the font of the machine that rendered it.
-- The README's header shows the lockup without a tagline.
+- The README's header shows the lockup with the tagline "Two engines. A clearer record." under
+  the name; the lockup is the one place the tagline appears, since the window's top bar states
+  what the program does instead.
 
 ## Not done, and why
 
