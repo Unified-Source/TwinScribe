@@ -56,6 +56,8 @@ from PySide6.QtWidgets import (
 
 from twinscribe import __version__
 from twinscribe.app.app_icon import app_icon, app_pixmap
+from twinscribe.app.export_dialog import ExportDialog
+from twinscribe.app.history_dialog import HistoryDialog
 from twinscribe.app.icons import make_icon
 from twinscribe.app.job_status import JobStatusCard
 from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
@@ -373,6 +375,11 @@ class MainWindow(QMainWindow):
         self.open_folder_button.clicked.connect(self.open_folder)
         top_layout.addWidget(self.open_files_button)
         top_layout.addWidget(self.open_folder_button)
+        self.history_button = QPushButton("History", top)
+        self.history_button.setObjectName("flat")
+        self.history_button.setToolTip("Every recording transcribed on this machine, with its outputs")
+        self.history_button.clicked.connect(lambda _checked=False: self.open_history())
+        top_layout.addWidget(self.history_button)
         top_layout.addSpacing(12)
 
         quality_label = QLabel("Quality", top)
@@ -476,10 +483,16 @@ class MainWindow(QMainWindow):
         self.review_button = QPushButton("Review", header)
         self.review_button.setToolTip("Work through the spans where speech may be missing, with the audio")
         self.review_button.clicked.connect(self.open_review)
+        self.export_button = QPushButton("Export", header)
+        self.export_button.setObjectName("flat")
+        self.export_button.setToolTip("Write the outputs again in chosen formats, to a chosen folder")
+        self.export_button.clicked.connect(lambda _checked=False: self.open_export())
+        self.export_button.setEnabled(False)
         self.folder_button = QPushButton("Show outputs", header)
         self.folder_button.setObjectName("flat")
         self.folder_button.setToolTip("Open the folder that holds the outputs")
         self.folder_button.clicked.connect(self.show_outputs)
+        header_layout.addWidget(self.export_button)
         header_layout.addWidget(self.folder_button)
         header_layout.addWidget(self.review_button)
         detail_layout.addWidget(header)
@@ -703,6 +716,7 @@ class MainWindow(QMainWindow):
         self.player_bar.set_available(False)
         self.review_button.setEnabled(False)
         self.folder_button.setEnabled(False)
+        self.export_button.setEnabled(False)
         self._clear_chips()
         if self.player is not None:
             self.player.stop()
@@ -716,6 +730,7 @@ class MainWindow(QMainWindow):
         self.title_label.setText(item.name)
         self.setWindowTitle(f"{item.name}  |  {APP_TITLE}")
         self.folder_button.setEnabled(True)
+        self.export_button.setEnabled(doc is not None)
         if doc is not None:
             session = None
             paths = output_paths(item.path, self.settings.output_dir_or_none)
@@ -887,6 +902,29 @@ class MainWindow(QMainWindow):
         window.destroyed.connect(lambda *_: self._reload_session())
         window.show()
         self._review_window = window
+
+    def open_history(self, modal: bool = True) -> HistoryDialog:
+        """The history dialog; recordings chosen there come back into the library."""
+        dialog = HistoryDialog(self.theme, self, author=self.settings.author)
+        dialog.add_requested.connect(lambda paths: self.add_paths([Path(p) for p in paths]))
+        if modal:
+            dialog.exec()
+        else:
+            dialog.show()
+        return dialog
+
+    def open_export(self, modal: bool = True) -> ExportDialog | None:
+        """The export dialog for the current recording's transcript document."""
+        if self._current_row is None or self._current_doc is None:
+            return None
+        item = self.library_model.item(self._current_row)
+        paths = output_paths(item.path, self.settings.output_dir_or_none)
+        dialog = ExportDialog(self._current_doc, paths, author=self.settings.author, parent=self)
+        if modal:
+            dialog.exec()
+        else:
+            dialog.show()
+        return dialog
 
     def _reload_session(self) -> None:
         if self._current_row is not None and 0 <= self._current_row < self.library_model.rowCount():

@@ -497,6 +497,12 @@ def test_batch_records_every_outcome(recording: Path, models, tmp_path: Path) ->
     assert [f["ok"] for f in record["files"]] == [True, False]
     assert record["failures"][0]["path"] == str(broken)
     assert "outputs" in record["files"][0] and record["files"][0]["marks"] == 2
+    # The history sits beside the batch records, one entry for the recording that completed.
+    from twinscribe.history import read_history
+
+    entries = read_history(tmp_path / "history.json")
+    assert [e.name for e in entries] == [recording.name] and entries[0].marks == 2 and entries[0].profile == "standard"
+    assert entries[0].outputs_present and entries[0].publisher == "parakeet-tdt-0.6b-v2-int8"
 
 
 def test_batch_cancellation_marks_the_rest(recording: Path, models, tmp_path: Path) -> None:
