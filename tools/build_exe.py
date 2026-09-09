@@ -45,7 +45,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ensure_pyinstaller()
     if not args.no_icon:
-        subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "make_icon.py")], check=True, cwd=str(REPO_ROOT))
+        # The icon file only: the documentation's lockups are rendered on purpose, with a tagline,
+        # and a build must not overwrite them.
+        subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "make_icon.py"), "--no-logo"], check=True, cwd=str(REPO_ROOT))
     started = time.perf_counter()
     command = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
