@@ -1,11 +1,14 @@
-# twinscribe
+# TwinScribe
+
+<img src="docs/images/icon.png" width="72" alt="The TwinScribe icon: two traces, the published engine's and the checking engine's">
 
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.
 
-**Status: early. The design is measured; the implementation is built from it and has run end
-to end with the live engines on synthesised speech. The accuracy table on public corpora and
-the first throughput figures are the next milestone, on lab hardware.**
+**Status: early. The design is measured; the implementation is built from it, runs end to end
+with the live engines, and its bench reproduces the design's accuracy tables on the public
+corpora (`docs/specs/bench.notes.md`). The first throughput figures are recorded there too;
+speed is a property of the machine and is not quoted here.**
 
 ## What it is for
 
@@ -86,6 +89,53 @@ digests. A folder that runs with nothing installed is described in
 covered, and how the machine is probed for the best available option, is in
 [docs/Platforms.md](docs/Platforms.md). Specifications and the notes recorded while building
 from them are under `docs/specs/`.
+
+## Seen in use
+
+The recordings in these pictures are the first two chapters of a public-domain audiobook,
+*The Adventures of Huckleberry Finn*, read for LibriVox: one reader, 10 min 54 s and
+15 min 22 s, mono MP3 at 22 kHz as downloaded. They were dropped into the window as they came;
+nothing was converted by hand.
+
+![The window while a recording is being transcribed](docs/images/window-transcribing.png)
+
+*Transcribing.* The library on the left holds every recording added, with its state. The
+selected recording shows its job card while it runs: the stage strip (reading the file,
+loading both engines, transcribing and checking at the same time, marking silence and noise,
+labelling speakers, writing the outputs), the elapsed time and the time left, a heartbeat,
+and the published engine's lines as they are decoded. The list follows the newest line only
+while the reader is at the bottom; a click seeks the player to that line and a double-click
+plays it. The status line names the quality level and where each engine is running.
+
+![The window with a transcribed recording playing](docs/images/window-playing.png)
+
+*Reading with the audio.* Once a recording has been transcribed its transcript follows the
+playhead: the line under the playhead is highlighted and kept in view, the waveform timeline
+carries every review mark, and the chips at the top give each speaker's share in words and
+seconds (one reader here, so one chip). Space plays or pauses, J and K move between marks,
+the arrows nudge by five seconds. The outputs sit beside the recording: the text and Word
+transcripts, the subtitle file, the review list, the run record and the transcript document.
+
+![The same window in the dark palette](docs/images/window-dark.png)
+
+*The dark palette*, chosen in Settings, with the second chapter playing. The two chapters here
+took 129 s and 199 s at the Standard level on a desktop with an NVIDIA device; the transducer
+and the speaker models ran on the processor.
+
+![The verification screen](docs/images/verify.png)
+
+*Verifying.* The Review button opens the verification screen for the recording's review list:
+a bar of the whole recording with every mark on it, the list of marks, the published
+transcript either side of each gap, and what the second engine heard there as a hint of what
+to listen for. Three actions per mark: play the span, nothing was said, type what was said.
+A session file records every resolution.
+
+To do the same: fetch the models once, open the window on a folder, press Transcribe.
+
+```
+python tools/fetch_models.py --root models
+python -m twinscribe app <folder with the recordings>
+```
 
 ## Components and licences
 
