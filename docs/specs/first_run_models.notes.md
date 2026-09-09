@@ -19,6 +19,12 @@ Companion to `first_run_models.md`. Records what was built, what was checked, an
   with the tool tip naming the folder and the two ways out, and the dialog lists the six
   models of the Standard level with role, size, licence and source host, the folder, and the
   total. The dialog's own table follows the level check boxes and the folder as typed.
+- The executables folder, rebuilt with this change (PyInstaller, 2.6 GB, 1.56 GB zipped), and the
+  first-run path checked from it: `check` reported no level; `fetch-models --only silero-vad`
+  without `--root` fetched into a `models` folder beside the executables, as a frozen build
+  should, and wrote the lock there; `check` then read that store; the window rendered to a
+  screenshot with the Get models button showing. The transfer over HTTPS needed nothing added
+  to the frozen interpreter.
 - The suite: 431 tests pass, 10 skip for want of a model or a library, on the fetch module
   against `file:` sources, the dialog with the fetch replaced by a stand-in that writes the
   store (done, cancelled, failed), the window's button and post-fetch refresh, and the command.
