@@ -32,7 +32,9 @@ jobs:
       - name: Libraries Qt needs without a display (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
+          # The runner image carries third-party package sources whose indexes fail at times; the
+          # libraries below come from the distribution's own, so a failed update is not fatal.
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 \
             libglib2.0-0 libnss3 libxcomposite1 libxdamage1 libxrandr2 libasound2t64 ffmpeg
