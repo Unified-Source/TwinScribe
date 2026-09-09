@@ -3,6 +3,7 @@ trip, replacement of an earlier entry for the same recording, removal and cleari
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,9 +42,11 @@ def test_round_trip_and_replacement(tmp_path: Path) -> None:
     entries = append_entry(again, path)
     assert [e.name for e in entries] == ["a.wav", "b.wav"]
     assert entries[0].produced_utc == "2026-02-02T00:00:00+00:00"
-    # The same recording under another spelling of its path is the same entry.
-    variant = HistoryEntry(**{**first.to_dict(), "path": str(tmp_path / "A.WAV").replace("/", "\\")})
-    assert len(append_entry(variant, path)) == 2
+    # Another spelling of the same path is the same entry where the file system ignores case
+    # (Windows); on a case-sensitive file system it names a different file.
+    variant = HistoryEntry(**{**first.to_dict(), "path": str(tmp_path / "A.WAV")})
+    same_file = os.path.normcase("A.WAV") == os.path.normcase("a.wav")
+    assert len(append_entry(variant, path)) == (2 if same_file else 3)
 
 
 def test_remove_clear_and_tolerance(tmp_path: Path) -> None:
