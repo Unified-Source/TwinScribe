@@ -1,7 +1,6 @@
 # Specification: review edits applied to the transcript
 
-Read `CONVENTIONS.md` first, then `verify_app.md` and section 3 of
-`../Design_and_Findings_2026-09-06.md`.
+Read `CONVENTIONS.md` first, then `verify_app.md`.
 
 Deliver `twinscribe/amend.py`, the additions to `twinscribe/app/verify.py`,
 `twinscribe/outputs/plain_text.py`, `twinscribe/outputs/word_docx.py` and
