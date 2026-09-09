@@ -2,6 +2,8 @@
 
 <img src="docs/images/icon.png" width="72" alt="The TwinScribe icon: two traces, the published engine's and the checking engine's">
 
+[![tests](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml/badge.svg)](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml)
+
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.
 
