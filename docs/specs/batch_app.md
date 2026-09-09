@@ -256,3 +256,10 @@ markers, renaming, a whole batch through the worker thread, drops, and settings 
 `docs/specs/batch_app.notes.md`: deviations, what could not be exercised without the engine
 libraries and models, and what QtMultimedia and the platform did that the specification did
 not anticipate.
+
+## The output device
+
+The player bar carries an output device box beside the volume: the system default first, then
+the system's outputs by description, the list following the system's changes. The choice is
+kept in the settings by device id and applied when that device is present; otherwise playback
+goes to the system default and the box shows so, keeping the choice for when the device returns.

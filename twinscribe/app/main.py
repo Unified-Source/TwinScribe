@@ -26,7 +26,7 @@ from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent, QKeyEvent, QKeySequence
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioDevice, QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication,
@@ -539,6 +539,7 @@ class MainWindow(QMainWindow):
         self.player_bar.follow_toggled.connect(self._on_follow_toggled)
         self.player_bar.rate_changed.connect(self._on_rate_changed)
         self.player_bar.volume_changed.connect(self._on_volume_changed)
+        self.player_bar.device_changed.connect(self._on_device_changed)
         detail_layout.addWidget(self.player_bar)
         self.splitter.addWidget(detail)
 
@@ -583,6 +584,7 @@ class MainWindow(QMainWindow):
             self.player.setAudioOutput(self.audio_output)
             self.player.setVideoOutput(self.video_widget)
             self.audio_output.setVolume(float(self.settings.volume))
+            self._apply_audio_device(self.settings.audio_device)
             self.player.setPlaybackRate(float(self.settings.rate))
             self.player.positionChanged.connect(self._on_position_changed)
             self.player.mediaStatusChanged.connect(self._on_media_status_changed)
@@ -596,6 +598,9 @@ class MainWindow(QMainWindow):
             self._player_error = f"{type(exc).__name__}: {exc}"
         self.player_bar.set_volume(self.settings.volume)
         self.player_bar.set_rate(self.settings.rate)
+        self._media_devices = QMediaDevices(self)
+        self._media_devices.audioOutputsChanged.connect(self._refresh_devices)
+        self._refresh_devices()
         self.player_bar.set_follow(self.settings.follow)
         self.transcript_view.set_follow(self.settings.follow)
         self.job_card.set_follow(self.settings.follow)
@@ -1371,6 +1376,31 @@ class MainWindow(QMainWindow):
         self.settings.volume = float(volume)
         if self.audio_output is not None:
             self.audio_output.setVolume(float(volume))
+
+    def _on_device_changed(self, device_id: str) -> None:
+        self.settings.audio_device = str(device_id or "")
+        self._apply_audio_device(self.settings.audio_device)
+
+    @staticmethod
+    def _device_id(device: QAudioDevice) -> str:
+        return bytes(device.id()).decode("utf-8", "replace")
+
+    def _refresh_devices(self) -> None:
+        """List the system's output devices in the player bar; the list follows the system."""
+        devices = [(self._device_id(d), d.description()) for d in QMediaDevices.audioOutputs()]
+        self.player_bar.set_devices(devices, self.settings.audio_device)
+
+    def _apply_audio_device(self, device_id: str) -> None:
+        """Play to the device with this id when it is present, else to the system default."""
+        if self.audio_output is None:
+            return
+        chosen = QAudioDevice()
+        if device_id:
+            for device in QMediaDevices.audioOutputs():
+                if self._device_id(device) == device_id:
+                    chosen = device
+                    break
+        self.audio_output.setDevice(chosen)
 
     # ----- settings -------------------------------------------------------------------
 

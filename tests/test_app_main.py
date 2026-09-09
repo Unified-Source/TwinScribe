@@ -576,3 +576,22 @@ def test_attach_log_only_without_console(tmp_path: Path, monkeypatch: pytest.Mon
 def test_parser_and_main_reject_nothing(tmp_path: Path) -> None:
     args = app_main.build_parser().parse_args([str(tmp_path), "--dark", "--shot", "x.png", "--seek", "12.5", "--select", "0"])
     assert args.dark and args.shot == Path("x.png") and args.seek == 12.5 and args.select == 0
+
+
+def test_output_device_choice_is_listed_kept_and_applied(app: QApplication, tmp_path: Path, home: Path) -> None:
+    window = make_window(app, tmp_path)
+    bar = window.player_bar
+    assert bar.device_box.itemText(0) == "System default" and bar.current_device() == ""
+    bar.set_devices([("id-speakers", "Speakers"), ("id-headset", "Headset")], current="id-headset")
+    assert [bar.device_box.itemText(i) for i in range(bar.device_box.count())] == ["System default", "Speakers", "Headset"]
+    assert bar.current_device() == "id-headset"
+    bar.device_box.setCurrentIndex(1)
+    assert window.settings.audio_device == "id-speakers"
+    bar.device_box.setCurrentIndex(0)
+    assert window.settings.audio_device == ""
+    # A kept choice that is not present selects the default in the box without losing the setting.
+    window.settings.audio_device = "id-gone"
+    bar.set_devices([("id-speakers", "Speakers")], current=window.settings.audio_device)
+    assert bar.current_device() == "" and window.settings.audio_device == "id-gone"
+    window._apply_audio_device("id-gone")
+    dispose(app, window)

@@ -38,6 +38,7 @@ class AppSettings:
     follow: bool = True
     volume: float = 0.8
     rate: float = 1.0
+    audio_device: str = ""
     library: list[str] = field(default_factory=list)
     splitter: list[int] = field(default_factory=list)
     window_size: list[int] = field(default_factory=list)
@@ -103,6 +104,7 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> AppSettings:
         settings.acceleration = "auto"
     settings.speakers = min(MAX_SPEAKERS, max(0, settings.speakers))
     settings.volume = min(1.0, max(0.0, settings.volume))
+    settings.audio_device = str(getattr(settings, "audio_device", "") or "")
     settings.rate = min(2.0, max(0.5, settings.rate))
     return settings
 

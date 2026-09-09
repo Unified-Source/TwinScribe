@@ -1,5 +1,5 @@
 """The player bar: timeline with the waveform overview and the review marks, transport
-buttons, the time readout, follow toggle, playback speed and volume.
+buttons, the time readout, follow toggle, playback speed, output device and volume.
 
 The bar owns no media object; it shows state and emits requests, so the window can drive one
 QMediaPlayer for the transcript pane, the timeline and the bar together.
@@ -30,6 +30,7 @@ class PlayerBar(QFrame):
     follow_toggled = Signal(bool)
     rate_changed = Signal(float)
     volume_changed = Signal(float)
+    device_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None, theme: Theme | None = None) -> None:
         super().__init__(parent)
@@ -81,6 +82,16 @@ class PlayerBar(QFrame):
         self.rate_box.setToolTip("Playback speed")
         self.rate_box.currentIndexChanged.connect(self._on_rate)
         row.addWidget(self.rate_box)
+
+        self.device_box = QComboBox(self)
+        self.device_box.setToolTip("Output device")
+        self.device_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.device_box.setMinimumContentsLength(14)
+        self.device_box.setMaximumWidth(220)
+        self.set_devices(())
+        self.device_box.currentIndexChanged.connect(self._on_device)
+        row.addSpacing(6)
+        row.addWidget(self.device_box)
 
         self.volume_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.volume_slider.setRange(0, 100)
@@ -150,6 +161,22 @@ class PlayerBar(QFrame):
     def set_volume(self, volume: float) -> None:
         self.volume_slider.setValue(int(round(100.0 * min(1.0, max(0.0, volume)))))
 
+    def set_devices(self, devices: Sequence[tuple[str, str]], current: str = "") -> None:
+        """List the output devices as (id, description) after the system default; select
+        `current` when it is among them, else the default."""
+        self.device_box.blockSignals(True)
+        self.device_box.clear()
+        self.device_box.addItem("System default", "")
+        for device_id, description in devices:
+            self.device_box.addItem(description, device_id)
+        index = self.device_box.findData(current) if current else 0
+        self.device_box.setCurrentIndex(index if index >= 0 else 0)
+        self.device_box.blockSignals(False)
+
+    def current_device(self) -> str:
+        """The chosen output device id, empty for the system default."""
+        return str(self.device_box.currentData() or "")
+
     def set_available(self, available: bool) -> None:
         """Grey the transport when nothing can be played."""
         for widget in (self.back_button, self.play_button, self.forward_button, self.timeline):
@@ -157,6 +184,9 @@ class PlayerBar(QFrame):
 
     def _refresh_time(self) -> None:
         self.time_label.setText(f"{clock(self._position_s)}  /  {clock(self._duration_s, tenths=False)}")
+
+    def _on_device(self, index: int) -> None:
+        self.device_changed.emit(str(self.device_box.itemData(index) or ""))
 
     def _on_rate(self, index: int) -> None:
         rate = self.rate_box.itemData(index)

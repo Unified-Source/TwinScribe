@@ -282,3 +282,11 @@ Not done, and why: swapping the embedding model (the section 6 candidates) or tu
 clustering threshold without a labelled corpus would be tuning on synthetic voices, which the
 design forbids; both wait for the lab hardware and the corpus pipeline, where per-speaker
 recall and the Jaccard error rate can be scored.
+
+## The output device
+
+- Added after the owner reported no sound on a laptop. The program had played to whatever the
+  system named as its default output, with no way to choose; checked in the lab, playback
+  rendered to the default device (a headset there) with the position advancing and no error.
+  The box lists the outputs the multimedia library reports and follows its change signal;
+  the test drives the box with made-up devices, since the offscreen platform reports none.
