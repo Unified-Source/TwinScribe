@@ -3,3 +3,5 @@
 *.wav binary
 *.onnx binary
 *.ico binary
+*.gif binary
+*.mp4 binary
