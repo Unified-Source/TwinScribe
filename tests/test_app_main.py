@@ -595,3 +595,79 @@ def test_output_device_choice_is_listed_kept_and_applied(app: QApplication, tmp_
     assert bar.current_device() == "" and window.settings.audio_device == "id-gone"
     window._apply_audio_device("id-gone")
     dispose(app, window)
+
+
+# ----- the review pass seen from the window --------------------------------------------------
+
+
+def test_checked_marks_show_in_the_pane_and_on_the_timeline(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from twinscribe.amend import apply_resolutions
+    from twinscribe.app.transcript_view import mark_resolution
+    from twinscribe.outputs.transcript_doc import load_document
+
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    assert window.player_bar.timeline._resolved == [False, False]
+    view = window.transcript_view
+    assert "Checked" not in view.toPlainText()
+
+    # A session file alone (no words in the document yet) shows what the listener recorded.
+    paths = output_paths(media["done"])
+    session = paths.review.with_name(f"{paths.review.stem}.session.json")
+    doc = load_document(paths.transcript)
+    entries = [{"start": m["start"], "end": m["end"], "status": "open", "note": ""} for m in doc["marks"]]
+    entries[1] = {**entries[1], "status": "text", "note": "hold on while I check"}
+    session.write_text(json.dumps({"schema": "twinscribe.review-session.v1", "marks": entries}), encoding="utf-8")
+    window._reload_transcript()
+    assert "Listener heard: hold on while I check" in view.toPlainText()
+    assert window.player_bar.timeline._resolved == [False, True]
+
+    # Once the session is written into the document, the marker points at the line below.
+    resolutions = [{"status": "text", "note": "yes I am here"}, {"status": "nothing", "note": ""}]
+    write_document(apply_resolutions(doc, resolutions), paths.transcript)
+    window.seek(7.0)
+    window._reload_transcript()
+    text = view.toPlainText()
+    assert text.count("Possible missed speech") == 2
+    assert "Checked: the listener's words follow." in text
+    assert "Checked: nothing was said." in text
+    assert "Listener heard" not in text
+    assert "(heard on review)  yes I am here" in text
+    assert view.line_count() == 5                          # the listener's line is a line of the pane
+    assert window.player_bar.timeline._resolved == [True, True]
+    assert window.player_bar.timeline.playhead() == pytest.approx(7.0)   # the player was left alone
+    mark, in_document = mark_resolution(load_document(paths.transcript)["marks"][0], None, 0)
+    assert in_document and mark == {"status": "text", "note": "yes I am here"}
+    assert mark_resolution({"start": 0.0, "end": 1.0}, [{"status": "open"}], 0) == (None, False)
+    assert mark_resolution({"start": 0.0, "end": 1.0}, [{"status": "nothing"}], 0) == ({"status": "nothing"}, False)
+    dispose(app, window)
+
+
+def test_the_review_screen_writes_through_to_the_window(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from twinscribe.outputs.transcript_doc import load_document
+
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    window.open_review()
+    screen = window._review_window
+    assert screen is not None and screen.isVisible()
+    assert screen.audio_device is not None or window.audio_output is None
+    screen.words_edit.setPlainText("yes I am here")
+    screen.keep_words()
+    app.processEvents()
+    # The pane behind the screen shows the listener's line while the screen is still open.
+    text = window.transcript_view.toPlainText()
+    assert "Checked: the listener's words follow." in text and "(heard on review)  yes I am here" in text
+    assert window.player_bar.timeline._resolved == [True, False]
+    paths = output_paths(media["done"])
+    assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
+    screen.resolve_nothing()
+    app.processEvents()
+    assert window.player_bar.timeline._resolved == [True, True]
+    assert load_document(paths.transcript)["review_applied"]["nothing"] == 1
+    screen.close()
+    app.processEvents()
+    assert "Checked: nothing was said." in window.transcript_view.toPlainText()
+    dispose(app, window)

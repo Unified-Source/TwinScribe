@@ -138,3 +138,16 @@ def test_read_resolutions_and_apply_session(tmp_path: Path) -> None:
     bad.write_text(json.dumps({"schema": "twinscribe.review-session.v1", "marks": []}), encoding="utf-8")
     with pytest.raises(ValueError):
         apply_session(transcript, bad, render=False)
+
+
+def test_reopening_takes_the_listener_line_out_again() -> None:
+    doc = make_document("call.wav")
+    once = apply_resolutions(doc, _resolutions(doc, m0=("text", "yes I am here"), m1=("nothing", "")))
+    assert once["review_applied"]["open"] == 0
+    reopened = apply_resolutions(once, _resolutions(doc, m1=("nothing", "")))
+    assert not [line for line in reopened["lines"] if line.get("src") == SOURCE_LISTENER]
+    assert "resolution" not in reopened["marks"][0]
+    assert reopened["marks"][1]["resolution"] == {"status": "nothing", "note": ""}
+    assert reopened["review_applied"]["text"] == 0 and reopened["review_applied"]["open"] == 1
+    assert len(reopened["lines"]) == len(doc["lines"])
+    assert reviewed_note(reopened) == "Reviewed by a listener: 1 span checked; 1 still open."

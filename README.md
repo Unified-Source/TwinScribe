@@ -140,12 +140,15 @@ and the speaker models ran on the processor.
 
 *Verifying.* The Review button opens the verification screen for the recording's review list:
 a bar of the whole recording with every mark on it, the list of marks, the published
-transcript either side of each gap, and what the second engine heard there as a hint of what
-to listen for. Three actions per mark: play the span, nothing was said, type what was said (the prompt starts
-from what the second engine heard, to be edited to what was actually said). A session file
-records every resolution, and Apply to transcript puts the typed words into the transcript as
-the listener's, marked "heard on review" in the text, the Word document and the window, and
-writes the outputs again; the engine's words are never altered.
+transcript either side of each gap, and a words box holding what the second engine heard
+there as the starting point for what was actually said. Selecting a mark plays its span. Three
+decisions per mark: nothing was said (N), keep the words in the box once they are right
+(Ctrl+Enter), or reopen a mark decided in error (O). Every decision is written at once into
+the transcript document and its text, Word and subtitle files: the listener's words become a
+line of their own at the gap's time, marked "heard on review" in every output, the checked
+marks turn green on both timelines, and the window behind follows as the screen writes; the
+engine's words are never altered. A session file beside the review list records every
+decision, so a pass can be resumed later.
 
 To do the same: fetch the models once, open the window on a folder, press Transcribe.
 
@@ -153,6 +156,22 @@ To do the same: fetch the models once, open the window on a folder, press Transc
 python -m twinscribe fetch-models
 python -m twinscribe app <folder with the recordings>
 ```
+
+## Recent changes
+
+- **2026-09-10, the review pass.** The verification screen took the words through a prompt
+  and put them into the transcript only on a separate key, so a listener who typed what was
+  said and closed the screen found the transcript and its text file unchanged, and nothing
+  said why. The words are now typed in a box that is always in view, pre-filled with what the
+  second engine heard, and every decision is written into the transcript and its outputs the
+  moment it is made; a mark plays when it is selected, can be reopened, and the checked marks
+  show in green on the timelines. The screen also plays to the output device chosen in the
+  player bar, where before it went to the system default.
+- **2026-09-09.** A Laptop quality level that checks only where the published engine fell
+  silent, saving 39 per cent of the checker's time on the telephone set; an output device box
+  in the player bar; the speaker stage in a child process, so the window stays responsive
+  while speakers are labelled; the model fetch reads each archive once and shows its stages;
+  the first-run fetch of the models, and the new mark and wordmark.
 
 ## Installing
 

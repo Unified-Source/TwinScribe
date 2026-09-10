@@ -2,7 +2,8 @@
 
 A synthetic review set is written to `tmp_path` with no audio file beside it, so playback
 is disabled and every other behaviour of the screen is exercised: construction, the mark
-list, the current-mark panels, the keys, the session file and the test-only panel.
+list, the current-mark panels, the words box and its keys, the session file, the transcript
+written on every resolution, and the test-only panel.
 """
 
 from __future__ import annotations
@@ -206,10 +207,30 @@ def test_summary_and_header_text(tmp_path: Path) -> None:
 
 def test_mark_row_text() -> None:
     mark = verify._mark_from_dict(MARKS[0])
-    row = verify.mark_row_text(0, mark, False)
+    row = verify.mark_row_text(0, mark)
     assert row.startswith("    1   ")
-    assert "0:03.1" in row and "2.5 s" in row and "4 words" in row
-    assert verify.mark_row_text(0, mark, True).startswith(TICK)
+    assert "0:03.1" in row and "2.5 s" in row and row.endswith("4 words")
+    assert verify.mark_row_text(0, mark, verify.Resolution(3.1, 6.4)) == row
+    nothing = verify.mark_row_text(0, mark, verify.Resolution(3.1, 6.4, "nothing", ""))
+    assert nothing.startswith(TICK) and nothing.endswith("nothing said")
+    text = verify.mark_row_text(0, mark, verify.Resolution(3.1, 6.4, "text", "yes I am here"))
+    assert text.startswith(TICK) and text.endswith('"yes I am here"')
+    # Long words are cut to the row: 21 characters and an ellipsis.
+    long = verify.Resolution(3.1, 6.4, "text", "one two three four five six seven eight nine")
+    assert verify.mark_row_text(0, mark, long).endswith('"one two three four fi..."')
+
+
+def test_shorten_progress_and_hint() -> None:
+    assert verify.shorten("a  b\nc", 10) == "a b c"
+    assert verify.shorten("abcdefghij", 10) == "abcdefghij"
+    assert verify.shorten("abcdefghijk", 10) == "abcdefg..."
+    assert verify.progress_text(2, 40) == "2 of 40 checked"
+    mark = verify._mark_from_dict(MARKS[0])
+    hint = verify.hint_text(mark)
+    assert hint.startswith('Starts from what the second engine heard: "yes I am here".')
+    assert hint.endswith("marked heard on review.")
+    silent = verify._mark_from_dict({**MARKS[0], "detector_text": ""})
+    assert verify.hint_text(silent).startswith("The second engine recorded no text here.")
 
 
 def test_describe_reference() -> None:
@@ -278,6 +299,10 @@ def test_timeline_click_seeks(app: QApplication) -> None:
     bar.set_resolved(0, True)
     bar.set_current(0)
     assert bar.current() == 0
+    bar.set_marks([(1.0, 2.0), (3.0, 4.0)], [True, False])
+    assert bar._resolved == [True, False]
+    bar.set_marks([(1.0, 2.0), (3.0, 4.0)], [True])            # the wrong length is ignored
+    assert bar._resolved == [False, False]
     bar.set_current(7)
     assert bar.current() is None
     bar.set_playhead(500.0)
@@ -311,8 +336,10 @@ def test_window_constructs(window: verify.VerifyWindow) -> None:
     assert "published by transducer tdt-0.6b" in window.header_label.text()
     assert "never published" in window.header_label.text()
     assert window.summary_label.text().startswith("3 marks covering 44.3%")
-    assert "Space" in window.footer_label.text() and "Enter" in window.footer_label.text()
+    assert window.summary_label.text().endswith("0 of 3 checked")
+    assert "Space" in window.footer_label.text() and "Ctrl+Enter" in window.footer_label.text()
     assert window.timeline.duration() == 30.0
+    assert "No transcript document beside the review set" in window.status_label.text()
 
 
 def test_missing_audio_disables_playback(window: verify.VerifyWindow) -> None:
@@ -342,7 +369,9 @@ def test_selecting_a_row_updates_panels(window: verify.VerifyWindow) -> None:
     context = window.context_panel.toPlainText()
     assert context.startswith("good morning this is the first call you can start now [ GAP ] thank you")
     assert "[ GAP ]" in context
-    assert window.hint_panel.toPlainText() == "hold on while I check"
+    # The words box starts from what the second engine heard, and the caption says so.
+    assert window.words_edit.toPlainText() == "hold on while I check"
+    assert '"hold on while I check"' in window.hint_label.text()
     assert window.position_s == pytest.approx(7.2)
     assert window.timeline.playhead() == pytest.approx(7.2)
     assert window.timeline.current() == 1
@@ -357,32 +386,88 @@ def test_n_resolves_and_advances(window: verify.VerifyWindow) -> None:
     assert window.mark_list.item(0).text().startswith(TICK)
     assert not window.mark_list.item(1).text().startswith(TICK)
     assert window.windowTitle().startswith("1 of 3 done")
+    assert window.summary_label.text().endswith("1 of 3 checked")
     assert "nothing was said" in window.status_label.text()
+    # With no transcript document beside the review set, the session file alone keeps it.
+    assert "the session file keeps the resolutions" in window.status_label.text()
+    assert window.mark_list.item(0).text().endswith("nothing said")
 
 
-def test_t_with_value_resolves_with_text(window: verify.VerifyWindow) -> None:
-    seen: list[str] = []
-
-    def prompt(earlier: str) -> str | None:
-        seen.append(earlier)
-        return "yes I am here"
-
-    window.text_prompt = prompt
+def test_t_and_ctrl_enter_keep_the_words_in_the_box(window: verify.VerifyWindow) -> None:
     QTest.keyClick(window.mark_list, Qt.Key.Key_T)
-    # The prompt starts from what the second engine heard when there is no earlier note.
-    assert seen == [window.review.marks[0].detector_text] == ["yes I am here"]
+    # T puts the cursor in the box, which holds what the second engine heard, selected so
+    # that typing replaces it.
+    assert window.words_edit.toPlainText() == "yes I am here"
+    assert window.words_edit.textCursor().hasSelection()
+    assert "Ctrl+Enter" in window.status_label.text()
+    window.words_edit.setPlainText("yes I am here now")
+    QTest.keyClick(window.words_edit, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
     assert window.resolutions[0].status == "text"
-    assert window.resolutions[0].note == "yes I am here"
+    assert window.resolutions[0].note == "yes I am here now"
     assert window.current_index == 1
     assert window.mark_list.item(0).text().startswith(TICK)
+    assert window.mark_list.item(0).text().endswith('"yes I am here now"')
+    assert window.status_label.text().startswith('Mark 1: "yes I am here now".')
+    # The box now holds the next mark's hint.
+    assert window.words_edit.toPlainText() == "hold on while I check"
 
-    # T on the same mark again offers the earlier note; cancelling changes nothing.
+    # Letters typed into the box are text, never the screen's keys.
+    window.words_edit.setPlainText("")
+    QTest.keyClicks(window.words_edit, "not")
+    assert window.words_edit.toPlainText() == "not"
+    assert window.resolutions[1].status == "open" and window.current_index == 1
+
+    # An empty box keeps nothing.
+    window.words_edit.setPlainText("   ")
+    window.keep_words()
+    assert window.resolutions[1].status == "open"
+    assert "Nothing typed" in window.status_label.text()
+
+    # Esc goes back to the list; the box's words are not kept by that.
+    window.words_edit.setPlainText("still here")
+    QTest.keyClick(window.words_edit, Qt.Key.Key_Escape)
+    assert "Back at the list" in window.status_label.text()
+    assert window.resolutions[1].status == "open"
+
+    # Back on the first mark the box shows the words kept for it.
     window.select_mark(0)
-    window.text_prompt = lambda earlier: (seen.append(earlier), None)[1]
-    QTest.keyClick(window.mark_list, Qt.Key.Key_T)
-    assert seen[-1] == "yes I am here"
-    assert window.resolutions[0].note == "yes I am here"
+    assert window.words_edit.toPlainText() == "yes I am here now"
     assert window.current_index == 0
+
+
+def test_reopen_sets_a_mark_back_to_open(window: verify.VerifyWindow) -> None:
+    QTest.keyClick(window.mark_list, Qt.Key.Key_O)
+    assert "open already" in window.status_label.text()
+    QTest.keyClick(window.mark_list, Qt.Key.Key_N)
+    assert window.resolutions[0].status == "nothing" and window.current_index == 1
+    window.select_mark(0)
+    assert window.words_edit.toPlainText() == ""
+    QTest.keyClick(window.mark_list, Qt.Key.Key_O)
+    assert window.resolutions[0].status == "open"
+    assert window.current_index == 0                       # reopening does not advance
+    assert not window.mark_list.item(0).text().startswith(TICK)
+    assert window.mark_list.item(0).text().endswith("4 words")
+    assert window.windowTitle().startswith("0 of 3 done")
+    assert "open again" in window.status_label.text()
+    assert window.words_edit.toPlainText() == "yes I am here"   # the hint is back
+
+
+def test_selecting_a_mark_plays_its_span_once_the_screen_is_open(window: verify.VerifyWindow) -> None:
+    # No audio file is beside the synthetic review set; the flag is set so that the play
+    # path runs against the player, which has no source and stays silent.
+    assert window.player is not None
+    window.audio_available = True
+    window.set_status("")
+    QTest.keyClick(window.mark_list, Qt.Key.Key_J)
+    assert window.current_index == 1
+    assert window._stop_at_s == pytest.approx(12.4)         # the span plays to its end
+    assert window.status_label.text() == ""                 # played on selection, not announced
+    QTest.keyClick(window.mark_list, Qt.Key.Key_N)
+    assert window.current_index == 2
+    assert window._stop_at_s == pytest.approx(24.4)         # the next span plays after a resolution
+    assert "nothing was said" in window.status_label.text()
+    QTest.keyClick(window.mark_list, Qt.Key.Key_Return)
+    assert window.status_label.text().startswith("Playing 0:19.6 to 0:24.4.")
 
 
 def test_j_and_k_move(window: verify.VerifyWindow) -> None:
@@ -434,8 +519,8 @@ def test_session_file_written_on_resolution_and_close(app: QApplication, tmp_pat
     assert [m["status"] for m in doc["marks"]] == ["nothing", "open", "open"]
     assert doc["marks"][0] == {"start": 3.1, "end": 6.4, "status": "nothing", "note": ""}
 
-    win.text_prompt = lambda earlier: "one more thing"
-    QTest.keyClick(win.mark_list, Qt.Key.Key_T)
+    win.words_edit.setPlainText("one more thing")
+    win.keep_words()
     win.close()
     app.processEvents()
     doc = json.loads(session.read_text(encoding="utf-8"))
@@ -469,8 +554,12 @@ def test_earlier_session_is_resumed(app: QApplication, tmp_path: Path) -> None:
     assert win.done_count() == 1
     assert win.resolutions[1].note == "carried over"
     assert win.mark_list.item(1).text().startswith(TICK)
+    assert win.mark_list.item(1).text().endswith('"carried over"')
     assert "Resumed 1 of 3" in win.status_label.text()
     assert win.windowTitle().startswith("1 of 3 done")
+    assert win.summary_label.text().endswith("1 of 3 checked")
+    win.select_mark(1)
+    assert win.words_edit.toPlainText() == "carried over"
     dispose(app, win)
 
 
@@ -513,10 +602,14 @@ def test_no_marks_constructs(app: QApplication, tmp_path: Path) -> None:
     assert win.mark_list.count() == 0
     assert win.current_index is None
     assert not win.nothing_button.isEnabled()
+    assert not win.keep_button.isEnabled() and not win.reopen_button.isEnabled()
+    assert not win.words_edit.isEnabled()
     assert win.windowTitle().startswith("0 of 0 done")
-    for key in (Qt.Key.Key_N, Qt.Key.Key_T, Qt.Key.Key_J, Qt.Key.Key_K, Qt.Key.Key_Return):
+    for key in (Qt.Key.Key_N, Qt.Key.Key_T, Qt.Key.Key_O, Qt.Key.Key_J, Qt.Key.Key_K, Qt.Key.Key_Return):
         QTest.keyClick(win, key)
+    QTest.keyClick(win, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
     assert win.current_index is None
+    assert win.apply_to_transcript() is None
     dispose(app, win)
 
 
@@ -533,7 +626,7 @@ def test_parser_options(tmp_path: Path) -> None:
     assert args.review_set == tmp_path / "r.json"
 
 
-def test_apply_puts_the_listener_words_into_the_transcript(app: QApplication, tmp_path: Path) -> None:
+def test_every_resolution_is_written_into_the_transcript(app: QApplication, tmp_path: Path) -> None:
     from tests._fixtures import detector_transcript, make_document, published_transcript
     from twinscribe.outputs import render_all
     from twinscribe.outputs.transcript_doc import load_document, write_document
@@ -550,37 +643,58 @@ def test_apply_puts_the_listener_words_into_the_transcript(app: QApplication, tm
     assert len(review.marks) == len(doc["marks"]) == 2
     window = verify.VerifyWindow(review, paths.review, theme_for(False), author="A Person")
     assert window.transcript_path() == paths.transcript
-    offered: list[str] = []
-
-    def prompt(earlier: str) -> str:
-        offered.append(earlier)
-        return "yes I am here"
-
-    window.text_prompt = prompt
+    assert "No transcript document" not in window.status_label.text()
+    changed: list[dict] = []
+    window.transcript_changed.connect(changed.append)
     window.select_mark(0)
-    window.resolve_text()
-    # The prompt started from what the second engine heard in the span.
-    assert offered == [review.marks[0].detector_text] and review.marks[0].detector_text
-    assert window.handle_key(Qt.Key.Key_A) is True
+    # The box started from what the second engine heard in the span; keeping edited words
+    # writes the transcript document and its outputs at once.
+    assert window.words_edit.toPlainText() == review.marks[0].detector_text and review.marks[0].detector_text
+    window.words_edit.setPlainText("yes I am here")
+    window.keep_words()
     revised = load_document(paths.transcript)
     assert revised["review_applied"]["text"] == 1 and revised["review_applied"]["open"] == 1
     listener = [line for line in revised["lines"] if line.get("src") == "listener"]
     assert len(listener) == 1 and listener[0]["text"] == "yes I am here"
+    assert listener[0]["start"] == pytest.approx(review.marks[0].span_start)
+    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here"}
     assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
-    assert "Transcript updated: 1 span with the listener's words, 0 silent, 1 still open" in window.status_label.text()
-    # Applying again after a change replaces rather than accumulates.
-    window.text_prompt = lambda earlier: "yes I am still here"
+    assert "Transcript written: 1 span with the listener's words, 0 silent, 1 still open" in window.status_label.text()
+    assert len(changed) == 1 and changed[0]["review_applied"]["text"] == 1
+    # A span resolved as silent is written too, as the mark's resolution.
+    assert window.current_index == 1
+    window.resolve_nothing()
+    on_disk = load_document(paths.transcript)
+    assert on_disk["marks"][1]["resolution"] == {"status": "nothing", "note": ""}
+    assert on_disk["review_applied"]["nothing"] == 1 and on_disk["review_applied"]["open"] == 0
+    assert "Reviewed by a listener: 2 spans checked" in paths.text.read_text(encoding="utf-8")
+    assert len(changed) == 2
+    # Changed words replace the earlier line rather than accumulate.
     window.select_mark(0)
-    window.resolve_text()
-    assert window.apply_to_transcript() is not None
+    window.words_edit.setPlainText("yes I am still here")
+    window.keep_words()
     again = [line for line in load_document(paths.transcript)["lines"] if line.get("src") == "listener"]
     assert len(again) == 1 and again[0]["text"] == "yes I am still here"
+    # Reopening takes the listener's line out of the transcript and its outputs.
+    window.select_mark(0)
+    window.reopen()
+    cleared = load_document(paths.transcript)
+    assert not [line for line in cleared["lines"] if line.get("src") == "listener"]
+    assert "resolution" not in cleared["marks"][0] and cleared["review_applied"]["open"] == 1
+    assert "heard on review" not in paths.text.read_text(encoding="utf-8").split("Transcript", 1)[1]
+    assert window.status_label.text().startswith("Mark 1 is open again. Transcript written: 0 spans")
+    assert window.apply_to_transcript() is not None
     window.close()
-    # Without a transcript document beside the review set nothing is applied.
+    # Without a transcript document beside the review set, the session file alone keeps
+    # the resolutions and the status line says so.
     alone = tmp_path / "alone"
     alone.mkdir()
     lonely = alone / "call.review.json"
     write_review_set(review_set(published, detector, "call.wav", build_review(published.words, detector.words, 30.0)), lonely)
     window = verify.VerifyWindow(verify.load_review_set(lonely), lonely, theme_for(False))
+    assert "No transcript document beside the review set" in window.status_label.text()
+    window.resolve_nothing()
+    assert "the session file keeps the resolutions" in window.status_label.text()
+    assert verify.session_path_for(lonely).is_file()
     assert window.apply_to_transcript() is None and "No transcript document" in window.status_label.text()
     window.close()

@@ -78,10 +78,14 @@ class Timeline(QWidget):
         """Recording length in seconds."""
         return self._duration_s
 
-    def set_marks(self, marks: Sequence[tuple[float, float]]) -> None:
-        """Replace the marks with (start, end) pairs in seconds; all become unresolved."""
+    def set_marks(self, marks: Sequence[tuple[float, float]], resolved: Sequence[bool] | None = None) -> None:
+        """Replace the marks with (start, end) pairs in seconds; `resolved`, one flag per
+        mark, says which are drawn as resolved, else all become unresolved."""
         self._marks = [(float(s), float(e)) for s, e in marks]
-        self._resolved = [False] * len(self._marks)
+        if resolved is not None and len(resolved) == len(self._marks):
+            self._resolved = [bool(flag) for flag in resolved]
+        else:
+            self._resolved = [False] * len(self._marks)
         if self._current is not None and self._current >= len(self._marks):
             self._current = None
         self.update()
