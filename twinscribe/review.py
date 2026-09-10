@@ -130,7 +130,7 @@ def checking_windows(
     published: Iterable[Word],
     audio_s: float,
     min_silence_s: float = 0.8,
-    margin_s: float = 1.0,
+    margin_s: float = 0.5,
 ) -> list[tuple[float, float]]:
     """The spans a checker need decode when it checks only where the publisher fell silent:
     every published-silent span of at least min_silence_s, widened by margin_s on both sides

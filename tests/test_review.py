@@ -383,15 +383,18 @@ def test_checking_windows_widen_merge_and_clamp() -> None:
 
     words = [word("a", 0.0, 1.0), word("b", 1.5, 2.0), word("c", 5.0, 6.0)]
     # Silent spans: 1.0-1.5 (0.5 s, under the rule), 2.0-5.0 and 6.0-10.0. With a 1.0 s margin
-    # the two that count become 1.0-6.0 and 5.0-10.0, which overlap and merge.
-    assert checking_windows(words, 10.0) == [(1.0, 10.0)]
+    # the two that count become 1.0-6.0 and 5.0-10.0, which overlap and merge; the default
+    # half-second margin gives 1.5-5.5 and 5.5-10.0, which touch and merge.
+    assert checking_windows(words, 10.0, margin_s=1.0) == [(1.0, 10.0)]
+    assert checking_windows(words, 10.0) == [(1.5, 10.0)]
     # A 0.2 s margin keeps them apart: 1.8-5.2 and 5.8-10.0.
     assert checking_windows(words, 10.0, margin_s=0.2) == [(1.8, 5.2), (5.8, 10.0)]
     # Touching windows merge: a 0.5 s margin gives 1.5-5.5 and 5.5-10.0.
     assert checking_windows(words, 10.0, margin_s=0.5) == [(1.5, 10.0)]
     # Leading silence counts and the margin clamps at zero; trailing silence clamps at the end.
     late = [word("a", 2.0, 3.0)]
-    assert checking_windows(late, 4.0) == [(0.0, 4.0)]
+    assert checking_windows(late, 4.0, margin_s=1.0) == [(0.0, 4.0)]
+    assert checking_windows(late, 4.0) == [(0.0, 4.0)]  # 0-2.5 and 2.5-4 touch and merge
     assert checking_windows(late, 4.0, margin_s=0.0) == [(0.0, 2.0), (3.0, 4.0)]
     # No silence long enough: nothing to decode. No audio: nothing.
     dense = [word("a", 0.0, 4.0), word("b", 4.5, 8.0), word("c", 8.5, 10.0)]

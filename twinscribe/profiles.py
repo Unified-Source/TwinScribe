@@ -60,7 +60,7 @@ class Profile:
     review: ReviewSettings = field(default_factory=ReviewSettings)
     diarization_threshold: float = 0.5
     checking: str = CHECK_EVERYWHERE
-    checking_margin_s: float = 1.0
+    checking_margin_s: float = 0.5
 
     @property
     def detector(self) -> str:

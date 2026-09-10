@@ -51,7 +51,7 @@ def test_profiles_are_the_four_levels() -> None:
         assert set(profile.required_keys) == {profile.publisher, KEY_SILERO_VAD, KEY_SEGMENTATION, KEY_EMBEDDING}
         assert profile.review.min_silence_s == 0.8 and profile.review.min_detector_words == 2 and profile.review.pad_s == 0.4
     laptop = profile_for("laptop")
-    assert laptop.checking == CHECK_GAPS and laptop.checking_margin_s == 1.0
+    assert laptop.checking == CHECK_GAPS and laptop.checking_margin_s == 0.5
     assert laptop.detectors == standard.detectors and laptop.publisher == standard.publisher and laptop.model_keys == standard.model_keys
     assert all(p.checking == CHECK_EVERYWHERE for p in PROFILES if p.name != "laptop")
 

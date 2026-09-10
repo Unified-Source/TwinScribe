@@ -294,8 +294,8 @@ recall and the Jaccard error rate can be scored.
 ## The Laptop level
 
 - Built on the owner's request after the checking phase ran long on a laptop. What it saves and
-  costs is measured in `bench.notes.md` (the telephone set, processor only): 31 per cent of the
-  checker's decode time at the shipped margin with the review list unchanged in quality, 29 per
-  cent of a whole run on the audiobook chapter and 14 per cent on a telephone call. The first
+  costs is measured in `bench.notes.md` (the telephone set, processor only): 39 per cent of the
+  checker's decode time at the shipped half-second margin, with three more off-speech marks in
+  69 as the price; end to end on the processor the 51 s telephone call takes 21 s against 28 s at Standard and the 654 s audiobook chapter 166 s against 251 s. The first
   form, clips handed straight to the library, was slower than the full check; the shipped form
   narrows the windows to speech and joins the pieces into one stream.

@@ -270,7 +270,7 @@ A fourth quality level, `laptop`: the Standard engines with the checker decoding
 the published engine fell silent, for machines without a graphics device, where the checker
 is the costly half. The pipeline then runs the two engines one after the other, the
 publisher first, takes the checking windows from its words at the review rule's threshold
-with a one-second margin, and hands them to the checker as clips, which decodes the speech
+with a half-second margin, and hands them to the checker as clips, which decodes the speech
 its voice detector finds inside them and not the silence; the run record says
 `checking: gaps` and the margin. The review list is built as for every level, from the
 published words and what the checker heard in the windows. The bench carries an arm for it

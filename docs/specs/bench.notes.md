@@ -122,15 +122,20 @@ the same pass, one after the other, on the 24 pinned telephone calls (1,446 s of
   stream so the model reads them in its usual windows, and every time is put back on the
   recording's clock. Speech inside the windows is 55 per cent of the audio, in 256 clips
   over the 24 calls.
-- **Time.** Full check 398 s of decode (3.6 times real time); targeted
-  274 s (5.3 times), a saving of 31 per cent of the checker's decode time
-  at the one-second margin. With a half-second margin the windows cover 71 per cent and the speech inside 43 per cent, the decode takes 241 s (6.0 times real time, a 39 per cent saving), and the review list gains six marks, three of them off speech (69 marks, 66 on speech, 172 covered, 19.8 per cent to review); the shipped margin stays at one second, the value the precision above was measured at, and the bench's `--checking-margin` option measures any other.
-- **The review list is unchanged in quality.** Full check: 63 marks, 62 on speech, 167 of the
-  254 dropped words covered (66 per cent), 19.3 per cent of the audio to review. Targeted:
-  60 marks, 59 on speech, 172 of 254 covered (68 per cent), 18.2 per cent to review. The
-  targeted check finds slightly more of what the publisher dropped, because the narrowed
-  stream gives the checker the speech round the gaps without the silence between.
-- **End to end on the processor.** One telephone call of 51 s: Standard 28 s, Laptop 24 s. The 654 s audiobook chapter: Standard 251 s, Laptop 178 s, 29 per cent less, with 45 review marks against 42. The Laptop level runs the engines one after the other, the publisher first, where Standard runs them side by side, so the end-to-end saving is smaller than the checker's own.
+- **Time.** Full check 398 s of decode (3.6 times real time). Targeted with a one-second
+  margin: 274 s (5.3 times), a saving of 31 per cent of the checker's decode time. With the
+  shipped half-second margin the windows cover 71 per cent and the speech inside 43 per cent,
+  in 341 clips; the decode takes 241 s (6.0 times real time), a saving of 39 per cent. The
+  bench's `--checking-margin` option measures any other margin.
+- **The review list keeps its quality.** Full check: 63 marks, 62 on speech, 167 of the 254
+  dropped words covered (66 per cent), 19.3 per cent of the audio to review. Targeted at the
+  one-second margin: 60 marks, 59 on speech, 172 of 254 covered (68 per cent), 18.2 per cent
+  to review. At the shipped half-second margin: 69 marks, 66 on speech (96 per cent), 172 of
+  254 covered, 19.8 per cent to review; three more off-speech marks in 69 is the price of the
+  extra saving, and the owner chose it. The targeted check finds slightly more of what the
+  publisher dropped, because the narrowed stream gives the checker the speech round the gaps
+  without the silence between.
+- **End to end on the processor.** One telephone call of 51 s: Standard 28 s, Laptop 24 s at the one-second margin and 21 s at the shipped half-second. The 654 s audiobook chapter: Standard 251 s, Laptop 178 s at one second (45 review marks against 42) and 166 s at half a second (44 marks), 34 per cent less than Standard. The Laptop level runs the engines one after the other, the publisher first, where Standard runs them side by side, so the end-to-end saving is smaller than the checker's own.
 - **Where the saving is larger.** The saving grows with the share of a recording the publisher
   leaves silent for less than the checker's window; on continuous single-speaker reading it is
   29 per cent of the whole run on the chapter against 14 per cent on the telephone call, where the two-party turn-taking leaves the publisher silent for half the audio and the voice detector finds speech in most of that.
