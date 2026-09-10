@@ -143,8 +143,9 @@ class PlayerBar(QFrame):
         self._playing = bool(playing)
         self._refresh_play_icon()
 
-    def set_marks(self, marks: Sequence[tuple[float, float]]) -> None:
-        self.timeline.set_marks(marks)
+    def set_marks(self, marks: Sequence[tuple[float, float]], resolved: Sequence[bool] | None = None) -> None:
+        """The review marks on the timeline; `resolved` flags the ones a listener has checked."""
+        self.timeline.set_marks(marks, resolved)
 
     def set_peaks(self, peaks: Sequence[int] | None, scale: int = 100) -> None:
         self.timeline.set_peaks(peaks, scale)

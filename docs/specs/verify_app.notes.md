@@ -34,17 +34,17 @@ QtMultimedia; the tests run under `QT_QPA_PLATFORM=offscreen` and use `QtTest.QT
    coverage.
 9. The window title is `<n> of <total> done | twinscribe verify | <audio name>`; the required
    text is the prefix.
-10. The T action calls `VerifyWindow.text_prompt(earlier_note)`, which returns the typed text or
-    None when cancelled. The default shows `QInputDialog.getText`; the tests replace it with a
-    plain function so no dialog blocks. Cancelling leaves the mark unchanged.
+10. T opens no prompt: the words are typed in a box that is always in view (the section at
+    the end of these notes) and Ctrl+Enter keeps them, so no dialog ever blocks and the tests
+    type into the box. The first form of the screen used a prompt; it is gone.
 11. Keys are handled twice over: in the window's `keyPressEvent` and in an event filter on the
     focusable children. A `QListWidget` turns unhandled letters into a keyboard search and
     consumes Space, and a read-only text panel scrolls on Space and the arrows, so without the
     filter the keys would work only while no child had focus. Ctrl and Alt combinations are left
     alone.
 12. The tick prefix on a resolved row is U+2713, written as an escape so the source stays ASCII.
-13. When the review set has no marks the screen still opens, the three buttons are disabled and
-    the keys do nothing. Not specified; avoids a crash on an empty list.
+13. When the review set has no marks the screen still opens, the four buttons and the words
+    box are disabled and the keys do nothing. Not specified; avoids a crash on an empty list.
 
 ## QtMultimedia on this platform
 
@@ -69,3 +69,32 @@ backend.
 - `QWidget.grab()` at 800 ms after `show()` produced a complete rendering for `--shot` in both
   palettes on the real backend. Under the offscreen platform every glyph is a box, as the design
   record warns; the module docstring records this.
+
+## The words box, and the transcript written on every resolution
+
+Observed on a copy of a real transcript (an audiobook chapter with forty marks): with the
+first form of the screen, typing words for a mark through the prompt and closing the screen
+changed only the session file; the transcript document and the text, Word and subtitle
+files were unchanged until the A key was pressed, and nothing on the screen said so. The
+revised screen wrote the document and the three outputs on the first kept words (status
+line: one span with the listener's words, thirty-nine still open) and took them out again
+on reopening.
+
+- The words box is a plain text editor under the same event filter as the other children,
+  but it gives up only Ctrl+Enter and Esc; every other key types. The filter returns False
+  for those keys so the editor still receives them. The single-letter keys of the screen
+  (N, T, O, J, K) therefore work from the list and the buttons, not from inside the box; T
+  moves the cursor into the box with its text selected, Esc moves it back.
+- A span is played when its mark is selected, except the first selection when the screen
+  opens, since nothing has been asked for yet; a resolution that advances plays the next
+  span without touching the status line, so the sentence about what was written stays
+  readable. Offscreen there is no audio: the test sets the availability flag and checks the
+  pending stop time instead.
+- Reopening does not advance, and refills the box with the second engine's hint.
+- The tick on a resolved row is followed by "nothing said" or the kept words cut to twenty
+  four characters; the full words are in the box when the row is selected.
+- With no transcript document beside the review set (a review set opened on its own), the
+  session file alone keeps the resolutions, and both the opening status and each
+  resolution's status say so.
+- The A key and the Apply button are gone; `apply_to_transcript()` remains for a caller that
+  wants the document written again from the resolutions held.

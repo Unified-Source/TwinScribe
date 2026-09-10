@@ -73,7 +73,7 @@ from twinscribe.app.settings import (
     save_settings,
 )
 from twinscribe.app.theme import Theme, apply_styles, apply_theme, theme_for
-from twinscribe.app.transcript_view import TranscriptView
+from twinscribe.app.transcript_view import TranscriptView, mark_resolution
 from twinscribe.app.worker import PipelineWorker
 from twinscribe.hardware import (
     BACKEND_CT2,
@@ -749,22 +749,7 @@ class MainWindow(QMainWindow):
         self.folder_button.setEnabled(True)
         self.export_button.setEnabled(doc is not None)
         if doc is not None:
-            session = None
-            paths = output_paths(item.path, self.settings.output_dir_or_none)
-            if item.transcript_path is not None:
-                session_path = paths.review.with_name(f"{paths.review.stem}.session.json")
-                session = read_session_entries(session_path, len(doc.get("marks", [])))
-            self.transcript_view.set_document(doc, session)
-            self.player_bar.set_marks([(float(m["start"]), float(m["end"])) for m in doc.get("marks", [])])
-            overview = doc.get("overview") or {}
-            self.player_bar.set_peaks(overview.get("peaks"), int(overview.get("scale", 100)))
-            self._duration_s = float(doc.get("duration_s", 0.0))
-            self.player_bar.set_duration(self._duration_s)
-            self._refresh_chips(doc)
-            marks = int(doc.get("review", {}).get("marks", 0))
-            self.review_button.setEnabled(marks > 0 and paths.review.is_file())
-            self.review_button.setText(f"Review ({marks})" if marks else "Review")
-            self.meta_label.setText(self._meta_text(item, doc))
+            self._show_document(item, doc)
         else:
             self.transcript_view.set_document(None)
             self.transcript_view.setPlaceholderText(
@@ -784,6 +769,31 @@ class MainWindow(QMainWindow):
         else:
             self._show_transcript_pane()
         self._set_source(item.path)
+
+    def _show_document(self, item: MediaItem, doc: dict[str, Any]) -> None:
+        """Lay out a transcript document for the recording: the pane with the review session
+        beside it, the marks with the checked ones in the success colour, the overview, the
+        chips, the Review button and the meta line."""
+        session = None
+        paths = output_paths(item.path, self.settings.output_dir_or_none)
+        if item.transcript_path is not None:
+            session_path = paths.review.with_name(f"{paths.review.stem}.session.json")
+            session = read_session_entries(session_path, len(doc.get("marks", [])))
+        self.transcript_view.set_document(doc, session)
+        marks = doc.get("marks", [])
+        self.player_bar.set_marks(
+            [(float(m["start"]), float(m["end"])) for m in marks],
+            [mark_resolution(m, session, index)[0] is not None for index, m in enumerate(marks)],
+        )
+        overview = doc.get("overview") or {}
+        self.player_bar.set_peaks(overview.get("peaks"), int(overview.get("scale", 100)))
+        self._duration_s = float(doc.get("duration_s", 0.0))
+        self.player_bar.set_duration(self._duration_s)
+        self._refresh_chips(doc)
+        count = int(doc.get("review", {}).get("marks", 0))
+        self.review_button.setEnabled(count > 0 and paths.review.is_file())
+        self.review_button.setText(f"Review ({count})" if count else "Review")
+        self.meta_label.setText(self._meta_text(item, doc))
 
     def _meta_text(self, item: MediaItem, doc: dict[str, Any] | None) -> str:
         parts: list[str] = []
@@ -913,10 +923,15 @@ class MainWindow(QMainWindow):
             return
         if self.player is not None:
             self.player.pause()
-        window = VerifyWindow(review, review_path, self.theme, parent=None, author=self.settings.author)
+        # The screen plays to the device chosen in the player bar, and the pane behind it
+        # follows every resolution it writes.
+        device = self.audio_output.device() if self.audio_output is not None else None
+        window = VerifyWindow(review, review_path, self.theme, parent=None, author=self.settings.author,
+                              audio_device=device)
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         window.resize(1120, 740)
-        window.destroyed.connect(lambda *_: self._reload_session())
+        window.transcript_changed.connect(lambda *_: self._reload_transcript())
+        window.destroyed.connect(lambda *_: self._reload_transcript())
         window.show()
         self._review_window = window
 
@@ -975,11 +990,19 @@ class MainWindow(QMainWindow):
             dialog.show()
         return dialog
 
-    def _reload_session(self) -> None:
-        if self._current_row is not None and 0 <= self._current_row < self.library_model.rowCount():
-            position = self._position_s
-            self._load_item(self.library_model.item(self._current_row))
-            self.transcript_view.set_position(position)
+    def _reload_transcript(self) -> None:
+        """Read the current recording's document again and lay it out afresh, leaving the
+        player where it is: while the verification screen writes, and when it closes."""
+        if self._current_row is None or not (0 <= self._current_row < self.library_model.rowCount()):
+            return
+        item = self.library_model.item(self._current_row)
+        doc = self._load_document_for(item)
+        if doc is None:
+            self._load_item(item)
+            return
+        self._current_doc = doc
+        self._show_document(item, doc)
+        self.transcript_view.set_position(self._position_s)
 
     # ----- quality and transcription --------------------------------------------------
 

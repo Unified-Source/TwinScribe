@@ -2,8 +2,9 @@
 
 The document is laid out once per recording as one text block per line, with the time in a
 narrow gutter, the speaker in colour and the words in the reading face. Spans the review list
-flagged appear between the lines as gap markers; a listener's resolution from a review session
-is shown under its marker. Stretches without speech (silence, music, background noise, other
+flagged appear between the lines as gap markers; a mark a listener has checked says so under
+its marker, and the listener's words, once written into the document, follow it as a line of
+their own. Stretches without speech (silence, music, background noise, other
 sound) appear as muted markers naming what is there. As the audio plays, the line under the
 playhead is highlighted and kept in view. Clicking a time, a gap marker or a scene marker, or
 double-clicking a line, seeks to it.
@@ -40,6 +41,26 @@ KIND_MARK = "mark"
 KIND_SCENE = "scene"
 FOLLOW_HOLD_S = 4.0
 GUTTER_CHARS = 9
+
+
+def mark_resolution(
+    mark: Mapping[str, Any], session: Sequence[Mapping[str, Any]] | None, index: int
+) -> tuple[dict[str, Any] | None, bool]:
+    """What a listener recorded for a mark, and whether it is in the transcript document.
+
+    The mark's own resolution comes first: the document carries one once a session has been
+    written into it, and the listener's words are then a line of the document. Otherwise the
+    entry of a review session beside the document, when it has one for the mark. (None, False)
+    for an open mark.
+    """
+    own = mark.get("resolution")
+    if isinstance(own, Mapping) and own.get("status", "open") != "open":
+        return dict(own), True
+    if session is not None and 0 <= index < len(session):
+        entry = session[index]
+        if entry.get("status", "open") != "open":
+            return dict(entry), False
+    return None, False
 
 
 class TranscriptView(QTextEdit):
@@ -246,23 +267,18 @@ class TranscriptView(QTextEdit):
                     f"{words} {noun} here. Click to listen.",
                     mark_format,
                 )
-                resolution = self._resolution_for(index)
+                resolution, in_document = mark_resolution(mark, self._session, index)
                 if resolution is not None:
-                    status = str(resolution.get("status", "open"))
-                    if status == "nothing":
-                        cursor.insertText("   Listener: nothing was said.", resolved_format)
-                    elif status == "text":
+                    if str(resolution.get("status", "open")) == "nothing":
+                        cursor.insertText("   Checked: nothing was said.", resolved_format)
+                    elif in_document:
+                        cursor.insertText("   Checked: the listener's words follow.", resolved_format)
+                    else:
                         cursor.insertText(f"   Listener heard: {resolution.get('note', '')}", resolved_format)
                 self._block_info[block_number] = (KIND_MARK, index)
             first = False
         self.setDocument(text_document)
         self.verticalScrollBar().setValue(0)
-
-    def _resolution_for(self, mark_index: int) -> dict[str, Any] | None:
-        if self._session is None or not (0 <= mark_index < len(self._session)):
-            return None
-        entry = self._session[mark_index]
-        return entry if entry.get("status", "open") != "open" else None
 
     # ----- tracking ------------------------------------------------------------------------
 

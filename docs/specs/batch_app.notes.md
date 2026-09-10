@@ -299,3 +299,14 @@ recall and the Jaccard error rate can be scored.
   69 as the price; end to end on the processor the 51 s telephone call takes 21 s against 28 s at Standard and the 654 s audiobook chapter 166 s against 251 s. The first
   form, clips handed straight to the library, was slower than the full check; the shipped form
   narrows the windows to speech and joins the pieces into one stream.
+
+## The review pass
+
+- Reworked after the review screen proved unintuitive in use and the typed words did not
+  reach the transcript: the screen had put them into the transcript only on a separate key,
+  which a listener does not know to press. Every resolution now writes the transcript and its
+  outputs at once (`verify_app.notes.md`), the pane behind the screen follows each write
+  through the screen's `transcript_changed` signal, the checked marks are drawn in the
+  success colour on the timeline, and the marker of a checked mark points at the listener's
+  line below it rather than repeating the words. The screen now plays to the device chosen
+  in the player bar; it had kept playing to the system default after the box was added.

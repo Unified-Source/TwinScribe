@@ -190,7 +190,9 @@ transcript recording that its word times are approximate.
   view (a manual scroll pauses following for a few seconds; the follow button toggles it).
 - Gap markers between the lines name the spans the review list flagged, with the count of
   words the second engine heard there and never their text; clicking one plays the span and
-  pauses at its end. A resolution from a review session is shown under its marker. Scene
+  pauses at its end. A mark a listener has checked says so under its marker, and the
+  listener's words, once written into the document, follow it as a line of their own in the
+  success colour; the timeline draws a checked mark in the success colour too. Scene
   markers, muted, name the stretches without speech (silence, music, background noise, other
   sound) with their span; clicking one seeks to its start.
 - Clicking a line's time seeks to it; double-clicking a line seeks to it; clicking the
@@ -217,8 +219,10 @@ transcript recording that its word times are approximate.
   highlighted and, while the view is held and following is on, kept in view. The recording is
   loaded in the player as soon as it is selected, so a passage can be checked against the
   audio before the transcript is finished.
-- Review opens the verification screen of `verify_app.md` on the recording's review set and
-  reloads the pane when it closes. Show outputs opens the folder that holds the outputs.
+- Review opens the verification screen of `verify_app.md` on the recording's review set,
+  playing to the output device chosen in the player bar; the pane follows every resolution
+  the screen writes and is laid out again when it closes. Show outputs opens the folder that
+  holds the outputs.
 - Settings: models folder (with a report of what it holds), outputs beside each recording or
   in one folder, author, threads, acceleration (automatic, processor only, CUDA device) with
   the plan the choice yields, light or dark. Settings, volume, speed, follow, the library and

@@ -37,11 +37,13 @@ Word and subtitle outputs again.
 
 ## 3. The verification screen
 
-- The T prompt is pre-filled with the earlier note, else with what the second engine heard in
-  the span, so a listener edits rather than types; it accepts several lines.
-- An "Apply to transcript (A)" action writes the revised document and outputs beside the review
-  set and says so in the status line; A is its key. The footer names it. The main window
-  reloads the recording when the screen closes, as before, and now shows the listener's lines.
+- The words box is pre-filled with the listener's earlier words, else with what the second
+  engine heard in the span, so a listener edits rather than types; it accepts several lines.
+- Keeping the words (Ctrl+Enter, or the button), resolving a span as silent (N) and reopening
+  a mark (O) each write the session and at once apply it to the transcript document beside
+  the review set, rendering the text, Word and subtitle outputs again; the status line says
+  what was written. The main window follows every write while the screen is open and lays the
+  recording out again when it closes, showing the listener's lines.
 
 ## 4. Rendering the listener's words
 

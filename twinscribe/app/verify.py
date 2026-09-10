@@ -2,10 +2,12 @@
 
 A review set (schema `twinscribe.review.v1`) lists the spans where the published engine
 heard nothing and the second engine heard speech. This screen plays each span, shows the
-published transcript either side of the gap and what the second engine heard, and records
-for every mark either that nothing was said or what was said. Resolutions go to
-`<review_set stem>.session.json` beside the review set, written on every resolution and on
-close.
+published transcript either side of the gap, and takes for every mark either that nothing
+was said or the words that were, typed in place over what the second engine heard. Every
+resolution is written at once to `<review_set stem>.session.json` beside the review set and,
+when the transcript document sits beside it, into the transcript itself: the listener's
+words become a line of their own, marked as heard on review, and the text, Word and
+subtitle files are written again.
 
 Entry point: `python -m twinscribe.app.verify <review_set.json> [--dark] [--shot out.png]`.
 
@@ -23,18 +25,16 @@ import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Sequence
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QFont, QKeyEvent, QPalette
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioDevice, QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -56,12 +56,13 @@ GAP_MARKER = "[ GAP ]"
 NUDGE_S = 5.0
 SHOT_DELAY_MS = 800
 TICK = "\u2713"  # check mark shown before a resolved row
+ROW_NOTE_CHARS = 24
+STATUS_NOTE_CHARS = 60
+CAPTION_TAIL = "the kept words are recorded as the listener's, marked heard on review."
 
 STATUS_OPEN = "open"
 STATUS_NOTHING = "nothing"
 STATUS_TEXT = "text"
-
-TextPrompt = Callable[[str], "str | None"]
 
 
 # ----- review set --------------------------------------------------------------------------
@@ -281,6 +282,14 @@ def format_mss_t(seconds: float) -> str:
     return f"{minutes}:{whole:02d}.{tenth}"
 
 
+def shorten(text: str, limit: int) -> str:
+    """One line of at most `limit` characters: whitespace collapsed, cut with an ellipsis."""
+    flat = " ".join(str(text).split())
+    if len(flat) <= limit:
+        return flat
+    return flat[: max(1, limit - 3)].rstrip() + "..."
+
+
 def context_around_gap(words: Sequence[TranscriptWord], span_start: float, span_end: float,
                        each_side: int = CONTEXT_WORDS) -> str:
     """Up to `each_side` published words before and after a gap, with the gap marker between.
@@ -349,6 +358,11 @@ def summary_text(review: ReviewSet) -> str:
     return text
 
 
+def progress_text(done: int, total: int) -> str:
+    """How far the pass has come: "2 of 40 checked"."""
+    return f"{done} of {total} checked"
+
+
 def header_text(review: ReviewSet, audio_path: Path) -> str:
     """The header line: file name, minutes, and both engines."""
     minutes = review.duration_s / 60.0
@@ -356,17 +370,34 @@ def header_text(review: ReviewSet, audio_path: Path) -> str:
             f"   |   checked against {review.detector}, which is never published")
 
 
-def mark_row_text(index: int, mark: ReviewMark, resolved: bool) -> str:
-    """List row: tick prefix, index, start as m:ss.t, span length, detector words."""
+def hint_text(mark: ReviewMark) -> str:
+    """The caption over the words box: what the second engine heard in the span, as the
+    starting point, and what becomes of the words that are kept."""
+    if mark.detector_text:
+        return (f'Starts from what the second engine heard: "{mark.detector_text}". '
+                f"Edit it to what is actually said; {CAPTION_TAIL}")
+    return f"The second engine recorded no text here. Type what is said; {CAPTION_TAIL}"
+
+
+def mark_row_text(index: int, mark: ReviewMark, resolution: Resolution | None = None) -> str:
+    """List row: tick prefix once resolved, index, start as m:ss.t, span length, then the
+    detector word count while the mark is open, else what the listener recorded."""
+    resolved = resolution is not None and resolution.resolved
     prefix = TICK if resolved else " "
-    noun = "word" if mark.detector_words == 1 else "words"
+    if resolved and resolution.status == STATUS_NOTHING:
+        tail = "nothing said"
+    elif resolved:
+        tail = f'"{shorten(resolution.note, ROW_NOTE_CHARS)}"'
+    else:
+        noun = "word" if mark.detector_words == 1 else "words"
+        tail = f"{mark.detector_words} {noun}"
     return (f"{prefix} {index + 1:>3}   {format_mss_t(mark.start):>8}   "
-            f"{mark.span_length:.1f} s   {mark.detector_words} {noun}")
+            f"{mark.span_length:.1f} s   {tail}")
 
 
 FOOTER_TEXT = ("Space play or pause   |   J next   |   K previous   |   Enter play span   |   "
-               "N nothing was said   |   T type what was said   |   A apply to transcript   |   "
-               "Left and Right nudge 5 s")
+               "N nothing was said   |   T type what was said   |   Ctrl+Enter keep the words   |   "
+               "O reopen   |   Esc back to the list   |   Left and Right nudge 5 s")
 
 
 # ----- the window ----------------------------------------------------------------------
@@ -375,22 +406,26 @@ FOOTER_TEXT = ("Space play or pause   |   J next   |   K previous   |   Enter pl
 class VerifyWindow(QMainWindow):
     """Main window of the verification screen.
 
-    `text_prompt` is the function used by the T action; it takes the earlier note and
-    returns the typed text, or None when cancelled. Tests replace it to avoid a dialog.
+    `audio_device` is the output device to play to; the system default when None.
+    `transcript_changed` carries the revised transcript document after every write, so the
+    window that opened the screen can show the listener's lines while the screen is open.
     """
 
+    transcript_changed = Signal(object)
+
     def __init__(self, review: ReviewSet, review_path: Path, theme: Theme | None = None,
-                 parent: QWidget | None = None, author: str = "") -> None:
+                 parent: QWidget | None = None, author: str = "",
+                 audio_device: QAudioDevice | None = None) -> None:
         super().__init__(parent)
         self.review = review
         self.review_path = Path(review_path)
         self.author = author
+        self.audio_device = audio_device
         self.session_path = session_path_for(self.review_path)
         self.theme = theme if theme is not None else theme_for(False)
         self.setWindowIcon(app_icon(self.theme.dark))
         self.audio_path = resolve_audio_path(self.review_path, review.audio)
         self.audio_available = self.audio_path.is_file()
-        self.text_prompt: TextPrompt = self._default_text_prompt
 
         self.resolutions: list[Resolution] = fresh_resolutions(review.marks)
         self._resumed = False
@@ -403,6 +438,8 @@ class VerifyWindow(QMainWindow):
         self._stop_at_s: float | None = None
         self._current: int | None = None
         self._session_error: str | None = None
+        # Selecting a mark plays its span, except the first selection when the screen opens.
+        self._play_on_select = False
 
         self._build_widgets()
         self._build_player()
@@ -410,7 +447,9 @@ class VerifyWindow(QMainWindow):
 
         if review.marks:
             self.mark_list.setCurrentRow(0)
+        self._play_on_select = True
         self._refresh_title()
+        self._refresh_summary()
         self._initial_status()
 
     # ----- construction ---------------------------------------------------------------
@@ -467,13 +506,18 @@ class VerifyWindow(QMainWindow):
         context_layout.addWidget(self.context_panel)
         right_layout.addWidget(context_box, 2)
 
-        hint_box = QGroupBox("What the second engine heard, as a hint of what to listen for", right)
-        hint_layout = QVBoxLayout(hint_box)
-        self.hint_panel = QPlainTextEdit(hint_box)
-        self.hint_panel.setReadOnly(True)
-        self.hint_panel.setMinimumHeight(60)
-        hint_layout.addWidget(self.hint_panel)
-        right_layout.addWidget(hint_box, 2)
+        words_box = QGroupBox("What was said here, in the listener's words", right)
+        words_layout = QVBoxLayout(words_box)
+        self.hint_label = QLabel("", words_box)
+        self.hint_label.setObjectName("muted")
+        self.hint_label.setWordWrap(True)
+        words_layout.addWidget(self.hint_label)
+        self.words_edit = QPlainTextEdit(words_box)
+        self.words_edit.setPlaceholderText("Type what was said, or press N when nothing was said.")
+        self.words_edit.setMinimumHeight(60)
+        self.words_edit.setTabChangesFocus(True)
+        words_layout.addWidget(self.words_edit)
+        right_layout.addWidget(words_box, 2)
 
         self.reference_panel: QGroupBox | None = None
         self.reference_label: QLabel | None = None
@@ -489,19 +533,23 @@ class VerifyWindow(QMainWindow):
         buttons = QHBoxLayout()
         self.play_button = QPushButton("Play this span (Enter)", right)
         self.nothing_button = QPushButton("Nothing was said (N)", right)
-        self.text_button = QPushButton("Type what was said (T)", right)
-        self.apply_button = QPushButton("Apply to transcript (A)", right)
-        self.apply_button.setToolTip(
-            "Put the typed words into the transcript as the listener's, marked as such, and write the outputs again"
+        self.keep_button = QPushButton("Keep these words (Ctrl+Enter)", right)
+        self.keep_button.setToolTip(
+            "Record the words above as what was said in this span; they go into the transcript "
+            "at once as a line of the listener's, marked heard on review"
         )
-        for button in (self.play_button, self.nothing_button, self.text_button, self.apply_button):
+        self.reopen_button = QPushButton("Reopen (O)", right)
+        self.reopen_button.setToolTip(
+            "Set this mark back to open; the listener's words for it leave the transcript"
+        )
+        for button in (self.play_button, self.nothing_button, self.keep_button, self.reopen_button):
             button.setAutoDefault(False)
             button.setDefault(False)
             buttons.addWidget(button)
         self.play_button.clicked.connect(self.play_span)
         self.nothing_button.clicked.connect(self.resolve_nothing)
-        self.text_button.clicked.connect(self.resolve_text)
-        self.apply_button.clicked.connect(self.apply_to_transcript)
+        self.keep_button.clicked.connect(self.keep_words)
+        self.reopen_button.clicked.connect(self.reopen)
         right_layout.addLayout(buttons)
 
         self.status_label = QLabel("", right)
@@ -521,9 +569,10 @@ class VerifyWindow(QMainWindow):
 
         # Children that take focus consume keys before the window sees them (a list view
         # turns letters into a keyboard search, a text panel scrolls on Space), so the
-        # window filters key presses on each of them.
-        for widget in (self.mark_list, self.context_panel, self.hint_panel, self.play_button,
-                       self.nothing_button, self.text_button, self.timeline):
+        # window filters key presses on each of them. The words box is filtered too, but
+        # gives up only Ctrl+Enter and Esc: every other key types into it.
+        for widget in (self.mark_list, self.context_panel, self.words_edit, self.play_button,
+                       self.nothing_button, self.keep_button, self.reopen_button, self.timeline):
             widget.installEventFilter(self)
         self.mark_list.setFocus()
 
@@ -534,6 +583,8 @@ class VerifyWindow(QMainWindow):
         try:
             self.player = QMediaPlayer(self)
             self.audio_output = QAudioOutput(self)
+            if self.audio_device is not None:
+                self.audio_output.setDevice(self.audio_device)
             self.player.setAudioOutput(self.audio_output)
             self.player.positionChanged.connect(self._on_position_changed)
             self.player.errorOccurred.connect(self._on_player_error)
@@ -550,15 +601,16 @@ class VerifyWindow(QMainWindow):
         self.timeline.set_marks([(m.start, m.end) for m in self.review.marks])
         self.mark_list.clear()
         for index, mark in enumerate(self.review.marks):
-            item = QListWidgetItem(mark_row_text(index, mark, self.resolutions[index].resolved))
-            self.mark_list.addItem(item)
+            self.mark_list.addItem(QListWidgetItem(mark_row_text(index, mark, self.resolutions[index])))
             self.timeline.set_resolved(index, self.resolutions[index].resolved)
         if not self.review.marks:
             self.span_label.setText("No marks: the published transcript has no silent spans to check.")
             self.context_panel.setPlainText("")
-            self.hint_panel.setPlainText("")
-            for button in (self.play_button, self.nothing_button, self.text_button):
-                button.setEnabled(False)
+            self.hint_label.setText("")
+            self.words_edit.setPlainText("")
+            for widget in (self.play_button, self.nothing_button, self.keep_button,
+                           self.reopen_button, self.words_edit):
+                widget.setEnabled(False)
 
     def _initial_status(self) -> None:
         parts: list[str] = []
@@ -571,6 +623,9 @@ class VerifyWindow(QMainWindow):
             parts.append(f"Audio loaded: {self.audio_path.name}.")
         if self._resumed and self.done_count() > 0:
             parts.append(f"Resumed {self.done_count()} of {len(self.resolutions)} earlier resolutions.")
+        if self.review.marks and not self.transcript_path().is_file():
+            parts.append("No transcript document beside the review set: resolutions go to the "
+                         "session file only.")
         self.set_status(" ".join(parts))
 
     # ----- properties -----------------------------------------------------------------
@@ -606,7 +661,8 @@ class VerifyWindow(QMainWindow):
     # ----- selection ------------------------------------------------------------------
 
     def select_mark(self, index: int) -> None:
-        """Make the mark at `index` current (clamped); selecting seeks to its start."""
+        """Make the mark at `index` current (clamped); selecting seeks to its start and, once
+        the screen has opened, plays its span."""
         if not self.review.marks:
             return
         index = min(max(0, index), len(self.review.marks) - 1)
@@ -630,9 +686,9 @@ class VerifyWindow(QMainWindow):
             self._current = None
             self.timeline.set_current(None)
             return
-        self._show_mark(row)
+        self._show_mark(row, play=self._play_on_select)
 
-    def _show_mark(self, index: int) -> None:
+    def _show_mark(self, index: int, play: bool = False) -> None:
         mark = self.review.marks[index]
         self._current = index
         self.timeline.set_current(index)
@@ -640,7 +696,8 @@ class VerifyWindow(QMainWindow):
             f"{format_mss_t(mark.start)} to {format_mss_t(mark.end)} ({mark.play_length:.1f} seconds)")
         self.context_panel.setPlainText(
             context_around_gap(self.review.transcript, mark.span_start, mark.span_end))
-        self.hint_panel.setPlainText(mark.detector_text or "(the second engine recorded no text)")
+        self.hint_label.setText(hint_text(mark))
+        self._fill_editor(index)
         if self.reference_label is not None:
             text, spoken = describe_reference(mark)
             self.reference_label.setText(text)
@@ -653,6 +710,22 @@ class VerifyWindow(QMainWindow):
             self.reference_label.setFont(font)
         self._stop_at_s = None
         self._seek(mark.start)
+        if play and self.player is not None and self.audio_available:
+            self.play_span(announce=False)
+
+    def _fill_editor(self, index: int) -> None:
+        """The words box for a mark: the listener's words when there are any, nothing for a
+        span resolved as silent, else what the second engine heard, to be edited."""
+        resolution = self.resolutions[index]
+        if resolution.status == STATUS_TEXT:
+            text = resolution.note
+        elif resolution.status == STATUS_NOTHING:
+            text = ""
+        else:
+            text = self.review.marks[index].detector_text
+        self.words_edit.setPlainText(text)
+        if self.words_edit.hasFocus():
+            self.words_edit.selectAll()
 
     # ----- playback -------------------------------------------------------------------
 
@@ -688,8 +761,9 @@ class VerifyWindow(QMainWindow):
         else:
             self.player.play()
 
-    def play_span(self) -> None:
-        """Enter: seek to the current mark's start, play, pause at its end."""
+    def play_span(self, announce: bool = True) -> None:
+        """Enter: seek to the current mark's start, play, pause at its end. With `announce`
+        the status line says so; a span played on selection leaves the status line alone."""
         mark = self.current_mark
         if mark is None:
             return
@@ -699,7 +773,8 @@ class VerifyWindow(QMainWindow):
         assert self.player is not None
         self._stop_at_s = mark.end
         self.player.play()
-        self.set_status(f"Playing {format_mss_t(mark.start)} to {format_mss_t(mark.end)}.")
+        if announce:
+            self.set_status(f"Playing {format_mss_t(mark.start)} to {format_mss_t(mark.end)}.")
 
     def _playback_possible(self) -> bool:
         if self.player is None or not self.audio_available:
@@ -740,42 +815,63 @@ class VerifyWindow(QMainWindow):
             return
         self._resolve(self._current, STATUS_NOTHING, "")
 
-    def resolve_text(self) -> None:
-        """T: prompt for what was said (pre-filled with any earlier note), then advance."""
+    def edit_words(self) -> None:
+        """T: put the cursor in the words box with its text selected, to type over it."""
         if self._current is None:
             return
-        # The earlier note, else what the second engine heard, so the listener edits rather
-        # than types; whatever is accepted is the listener's and is marked so.
-        earlier = self.resolutions[self._current].note or self.review.marks[self._current].detector_text
-        typed = self.text_prompt(earlier)
-        if typed is None:
-            self.set_status("Cancelled; the mark is unchanged.")
+        self.words_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.words_edit.selectAll()
+        self.set_status("Type what was said, then Ctrl+Enter or Keep these words; Esc goes back to the list.")
+
+    def keep_words(self) -> None:
+        """Ctrl+Enter: record the words in the box as what was said in the current span,
+        then advance."""
+        if self._current is None:
             return
-        self._resolve(self._current, STATUS_TEXT, typed)
+        note = self.words_edit.toPlainText().strip()
+        if not note:
+            self.set_status("Nothing typed: type what was said, or press N when nothing was said.")
+            return
+        self._resolve(self._current, STATUS_TEXT, note)
 
-    def _default_text_prompt(self, earlier: str) -> str | None:
-        typed, accepted = QInputDialog.getMultiLineText(
-            self, "Type what was said",
-            "What was said in this span. The second engine's hint is only a start; what is accepted here is recorded as yours:",
-            earlier)
-        return typed if accepted else None
+    def reopen(self) -> None:
+        """O: set the current mark back to open; the listener's words for it leave the
+        transcript."""
+        if self._current is None:
+            return
+        if not self.resolutions[self._current].resolved:
+            self.set_status(f"Mark {self._current + 1} is open already.")
+            return
+        self._resolve(self._current, STATUS_OPEN, "", advance=False)
 
-    def _resolve(self, index: int, status: str, note: str) -> None:
+    def _resolve(self, index: int, status: str, note: str, advance: bool = True) -> None:
         resolution = self.resolutions[index]
         resolution.status = status
         resolution.note = note
+        self._refresh_row(index)
+        self._write_session()
+        _, written = self._apply()
+        self._refresh_title()
+        self._refresh_summary()
+        if status == STATUS_NOTHING:
+            what = f"Mark {index + 1}: nothing was said."
+        elif status == STATUS_TEXT:
+            what = f'Mark {index + 1}: "{shorten(note, STATUS_NOTE_CHARS)}".'
+        else:
+            what = f"Mark {index + 1} is open again."
+        if self._session_error is not None:
+            written = f"Could not write the session file: {self._session_error}. {written}"
+        self.set_status(f"{what} {written}")
+        if advance and index + 1 < len(self.review.marks):
+            self.select_mark(index + 1)
+        else:
+            self._fill_editor(index)
+
+    def _refresh_row(self, index: int) -> None:
         item = self.mark_list.item(index)
         if item is not None:
-            item.setText(mark_row_text(index, self.review.marks[index], True))
-        self.timeline.set_resolved(index, True)
-        self._write_session()
-        self._refresh_title()
-        if status == STATUS_NOTHING:
-            self.set_status(f"Mark {index + 1}: nothing was said.")
-        else:
-            self.set_status(f"Mark {index + 1}: \"{note}\".")
-        if index + 1 < len(self.review.marks):
-            self.select_mark(index + 1)
+            item.setText(mark_row_text(index, self.review.marks[index], self.resolutions[index]))
+        self.timeline.set_resolved(index, self.resolutions[index].resolved)
 
     def transcript_path(self) -> Path:
         """The transcript document beside the review set, named by the same stem."""
@@ -783,34 +879,39 @@ class VerifyWindow(QMainWindow):
         stem = name[: -len(".review.json")] if name.endswith(".review.json") else self.review_path.stem
         return self.review_path.with_name(f"{stem}.transcript.json")
 
-    def apply_to_transcript(self) -> dict | None:
-        """A: write the session, put the resolutions into the transcript document beside the
-        review set, and render the text, Word and subtitle outputs again. Returns the revised
-        document, or None with the reason in the status line."""
+    def _apply(self) -> tuple[dict | None, str]:
+        """Put the session's resolutions into the transcript document beside the review set
+        and render its text, Word and subtitle outputs again. Returns the revised document,
+        or None, and a sentence saying what happened."""
         from twinscribe.amend import apply_session
 
-        if not self.review.marks:
-            self.set_status("Nothing to apply: the review list is empty.")
-            return None
         target = self.transcript_path()
         if not target.is_file():
-            self.set_status(f"No transcript document beside the review set ({target.name}); nothing applied.")
-            return None
-        self._write_session()
+            return None, (f"No transcript document beside the review set ({target.name}); "
+                          "the session file keeps the resolutions.")
         try:
             revised = apply_session(target, self.session_path, author=self.author)
         except (OSError, ValueError) as exc:
-            self.set_status(f"Could not apply the review: {exc}")
-            return None
+            return None, f"Could not write the transcript or its outputs: {exc}"
         applied = revised.get("review_applied") or {}
         with_words = int(applied.get("text", 0))
         silent = int(applied.get("nothing", 0))
         open_count = int(applied.get("open", 0))
         noun = "span" if with_words == 1 else "spans"
-        self.set_status(
-            f"Transcript updated: {with_words} {noun} with the listener's words, {silent} silent, "
-            f"{open_count} still open; the text, Word and subtitle files were written again."
-        )
+        sentence = (f"Transcript written: {with_words} {noun} with the listener's words, {silent} silent, "
+                    f"{open_count} still open; the text, Word and subtitle files are written again.")
+        self.transcript_changed.emit(revised)
+        return revised, sentence
+
+    def apply_to_transcript(self) -> dict | None:
+        """Write the session and the transcript again from the resolutions held; the status
+        line says what happened. Returns the revised document, or None."""
+        if not self.review.marks:
+            self.set_status("Nothing to apply: the review list is empty.")
+            return None
+        self._write_session()
+        revised, sentence = self._apply()
+        self.set_status(sentence)
         return revised
 
     def _write_session(self) -> None:
@@ -826,10 +927,19 @@ class VerifyWindow(QMainWindow):
         self.setWindowTitle(f"{self.done_count()} of {total} done  |  TwinScribe verify  |  "
                             f"{self.audio_path.name}")
 
+    def _refresh_summary(self) -> None:
+        text = summary_text(self.review)
+        if self.review.marks:
+            text += f"   |   {progress_text(self.done_count(), len(self.review.marks))}"
+        self.summary_label.setText(text)
+
     # ----- keys -----------------------------------------------------------------------
 
     def handle_key(self, key: int, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> bool:
         """Apply one of the screen's keys; True when the key was one of them."""
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and modifiers & Qt.KeyboardModifier.ControlModifier:
+            self.keep_words()
+            return True
         if modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             return False
         if key == Qt.Key.Key_Space:
@@ -843,9 +953,9 @@ class VerifyWindow(QMainWindow):
         elif key == Qt.Key.Key_N:
             self.resolve_nothing()
         elif key == Qt.Key.Key_T:
-            self.resolve_text()
-        elif key == Qt.Key.Key_A:
-            self.apply_to_transcript()
+            self.edit_words()
+        elif key == Qt.Key.Key_O:
+            self.reopen()
         elif key == Qt.Key.Key_Left:
             self.nudge(-NUDGE_S)
         elif key == Qt.Key.Key_Right:
@@ -853,6 +963,18 @@ class VerifyWindow(QMainWindow):
         else:
             return False
         return True
+
+    def _editor_key(self, key: int, modifiers: Qt.KeyboardModifier) -> bool:
+        """The keys the words box gives up: Ctrl+Enter keeps the words, Esc returns to the
+        list; every other key types into the box."""
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and modifiers & Qt.KeyboardModifier.ControlModifier:
+            self.keep_words()
+            return True
+        if key == Qt.Key.Key_Escape:
+            self.mark_list.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self.set_status("Back at the list; the words in the box are kept only with Ctrl+Enter or the button.")
+            return True
+        return False
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt virtual)
         if self.handle_key(event.key(), event.modifiers()):
@@ -862,6 +984,8 @@ class VerifyWindow(QMainWindow):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 (Qt virtual)
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if watched is self.words_edit:
+                return self._editor_key(event.key(), event.modifiers())
             if self.handle_key(event.key(), event.modifiers()):
                 return True
         return super().eventFilter(watched, event)
