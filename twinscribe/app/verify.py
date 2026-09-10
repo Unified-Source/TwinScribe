@@ -511,6 +511,11 @@ class VerifyWindow(QMainWindow):
         self.hint_label = QLabel("", words_box)
         self.hint_label.setObjectName("muted")
         self.hint_label.setWordWrap(True)
+        # Muted through the palette as well as the stylesheet, so the caption reads as
+        # secondary when the screen runs on its own, without the application stylesheet.
+        caption = QPalette(self.hint_label.palette())
+        caption.setColor(QPalette.ColorRole.WindowText, self.theme.muted)
+        self.hint_label.setPalette(caption)
         words_layout.addWidget(self.hint_label)
         self.words_edit = QPlainTextEdit(words_box)
         self.words_edit.setPlaceholderText("Type what was said, or press N when nothing was said.")
