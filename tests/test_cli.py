@@ -40,7 +40,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_check_reports_models_and_levels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv(MODELS_ENV, str(tmp_path / "models"))
-    assert cli.main(["check"]) == 1                      # no level can run here: a script can gate on it
+    assert cli.main(["check"]) == 0                      # a report, whatever it finds; --verify carries a status
     out = capsys.readouterr().out
     assert "ffmpeg:" in out and "models root:" in out and "quality levels:  none" in out
     assert "Machine:" in out and "plan (auto):" in out

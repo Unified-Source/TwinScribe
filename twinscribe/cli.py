@@ -193,8 +193,7 @@ def command_check(args: argparse.Namespace) -> int:
     print("plan (" + args.device + "):")
     for line in current_plan(args.device).describe():
         print("  " + line)
-    # The status lets a script gate on the check: 1 when nothing could transcribe here.
-    status = 0 if levels else 1
+    status = 0
     if args.verify:
         checks = verify_store(models.root)
         for check in checks:
