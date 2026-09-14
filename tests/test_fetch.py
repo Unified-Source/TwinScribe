@@ -207,7 +207,7 @@ def test_proposed_root_prefers_the_store_then_the_executable_then_the_home(tmp_p
     assert proposed_root(find_models(None)) == tmp_path / "named"
 
 
-def test_the_level_plan_follows_the_installed_detector_library() -> None:
+def test_the_level_plan_follows_the_installed_detector_library(tmp_path: Path) -> None:
     from twinscribe.hardware import BACKEND_CT2, BACKEND_ONNX
     from twinscribe.profiles import profile_for
 
@@ -222,6 +222,6 @@ def test_the_level_plan_follows_the_installed_detector_library() -> None:
     neither = {spec.key for spec in specs_for_level("standard", {BACKEND_CT2: False, BACKEND_ONNX: False})}
     assert ct2_key in neither                                      # nothing usable: the first choice stands
     # The missing list follows the same choice, so a machine without CTranslate2 fetches what it can run.
-    empty = find_models(Path("D:/no-such-store") if sys.platform == "win32" else Path("/no-such-store"))
+    empty = find_models(tmp_path / "no-such-store")
     keys = [spec.key for spec in missing_for_levels(["standard"], empty, {BACKEND_CT2: False, BACKEND_ONNX: True})]
     assert onnx_key in keys and ct2_key not in keys

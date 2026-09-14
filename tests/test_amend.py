@@ -156,8 +156,8 @@ def test_reopening_takes_the_listener_line_out_again() -> None:
 
 def _one_speaker_document() -> dict:
     """One engine line of speaker a, 0.5 to 8.0 s, with a one-second pause the review marks."""
-    times = [(0.5, 1.0, "we"), (1.0, 1.5, "went"), (2.0, 2.5, "down"), (3.0, 3.5, "there"),
-             (4.5, 5.0, "and"), (5.0, 5.5, "then"), (6.0, 6.5, "we"), (7.0, 8.0, "left")]
+    times = [(0.5, 1.0, "the"), (1.0, 1.5, "car"), (2.0, 2.5, "went"), (3.0, 3.5, "there"),
+             (4.5, 5.0, "and"), (5.0, 5.5, "then"), (6.0, 6.5, "it"), (7.0, 8.0, "left")]
     words = [{"s": s, "e": e, "w": w} for s, e, w in times]
     return {
         "schema": "twinscribe.transcript.v1",
@@ -174,13 +174,13 @@ def test_words_inside_a_line_split_it_and_take_its_speaker() -> None:
     assert containing_line(doc["lines"], 3.5, 4.5) is doc["lines"][0]
     assert infer_speaker(doc["lines"], 3.5, 4.5) == "a"
     pieces = split_line_at(doc["lines"][0], 3.5, 4.5)
-    assert [p["text"] for p in pieces] == ["we went down there", "and then we left"]
+    assert [p["text"] for p in pieces] == ["the car went there", "and then it left"]
     assert pieces[0]["end"] == 3.5 and pieces[1]["start"] == 4.5
     revised = apply_resolutions(doc, [{"status": "text", "note": "hold on"}])
     lines = revised["lines"]
     assert [line.get("src") for line in lines] == [None, SOURCE_LISTENER, None]
     assert lines[1]["speaker"] == "a" and lines[1]["text"] == "hold on"
-    assert lines[0]["text"] == "we went down there" and lines[2]["text"] == "and then we left"
+    assert lines[0]["text"] == "the car went there" and lines[2]["text"] == "and then it left"
     engine_words = [w["w"] for line in lines if line.get("src") != SOURCE_LISTENER for w in line["words"]]
     assert engine_words == [w["w"] for w in doc["lines"][0]["words"]]
     # The seconds of the pause are counted once, for the listener's line, not twice.
