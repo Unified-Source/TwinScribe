@@ -103,5 +103,13 @@ def export_outputs(
                 continue
             if source.resolve() != target.resolve():
                 shutil.copyfile(source, target)
+            if key == FORMAT_REVIEW:
+                # The listener's decisions travel with the review list, so a pass can go on
+                # from the exported folder.
+                session = source.with_name(f"{source.stem}.session.json")
+                session_target = folder / f"{stem}.review.session.json"
+                if session.is_file() and session.resolve() != session_target.resolve():
+                    shutil.copyfile(session, session_target)
+                    written.append(session_target)
         written.append(target)
     return written

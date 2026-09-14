@@ -20,7 +20,7 @@ import argparse
 import importlib.util
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +61,7 @@ from twinscribe.app.history_dialog import HistoryDialog
 from twinscribe.app.models_dialog import ModelsDialog
 from twinscribe.app.icons import make_icon
 from twinscribe.app.job_status import JobStatusCard
-from twinscribe.app.library import STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
+from twinscribe.app.library import STATUS_DONE, STATUS_FAILED, STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
 from twinscribe.app.player import PlayerBar
 from twinscribe.app.settings import (
     ACCELERATIONS,
@@ -74,6 +74,13 @@ from twinscribe.app.settings import (
 )
 from twinscribe.app.theme import Theme, apply_styles, apply_theme, theme_for
 from twinscribe.app.transcript_view import TranscriptView, mark_resolution
+from twinscribe.audio import find_ffmpeg
+from twinscribe.outputs import describe_failures, render_outputs
+from twinscribe.outputs.transcript_doc import merge_speakers
+from twinscribe.pipeline import writable_folder
+from PySide6.QtCore import QPoint
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import QAbstractButton, QMenu
 from twinscribe.app.worker import PipelineWorker
 from twinscribe.hardware import (
     BACKEND_CT2,
@@ -124,8 +131,11 @@ def _file_filter() -> str:
     return f"Recordings ({patterns});;All files (*)"
 
 
-def read_session_entries(path: Path, expected: int) -> list[dict[str, Any]] | None:
-    """Entries of a review session beside a review set, when it has one entry per mark."""
+def read_session_entries(path: Path, marks: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]] | None:
+    """Entries of a review session beside a review set, when it has one entry per mark and
+    every entry's play span agrees with the mark's within a millisecond, as the verification
+    screen requires; a session left by an earlier transcription is otherwise set aside, so a
+    mark nobody listened to is never shown as checked."""
     if not path.is_file():
         return None
     try:
@@ -136,26 +146,70 @@ def read_session_entries(path: Path, expected: int) -> list[dict[str, Any]] | No
     if not isinstance(doc, dict) or doc.get("schema") != SESSION_SCHEMA:
         return None
     entries = doc.get("marks")
-    if not isinstance(entries, list) or len(entries) != expected:
+    if not isinstance(entries, list) or len(entries) != len(marks):
         return None
-    return [dict(e) for e in entries if isinstance(e, dict)] if all(isinstance(e, dict) for e in entries) else None
+    for entry, mark in zip(entries, marks):
+        if not isinstance(entry, dict):
+            return None
+        try:
+            start = float(entry["start"])
+            end = float(entry["end"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if abs(start - float(mark.get("start", 0.0))) > 1e-3 or abs(end - float(mark.get("end", 0.0))) > 1e-3:
+            return None
+    return [dict(e) for e in entries]
+
+
+class ElidedLabel(QLabel):
+    """A label whose text is cut to the width it has, the whole text in its tool tip, so a
+    long file name or a long message never forces the window wider. A name is cut in the
+    middle, so its extension stays in view; a sentence is cut at its end."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None,
+                 mode: Qt.TextElideMode = Qt.TextElideMode.ElideMiddle) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self._mode = mode
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 (Qt virtual)
+        self._full = str(text)
+        self.setToolTip(self._full if len(self._full) > 40 else "")
+        self._elide()
+
+    def text(self) -> str:
+        """The whole text, as set, whatever the label shows."""
+        return self._full
+
+    def _elide(self) -> None:
+        width = max(20, self.width() - 4)
+        super().setText(QFontMetrics(self.font()).elidedText(self._full, self._mode, width))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt virtual)
+        super().resizeEvent(event)
+        self._elide()
 
 
 class SpeakerChip(QLabel):
-    """One speaker with its colour and word count; double-click asks to rename it."""
+    """One speaker with its colour, word count and seconds; double-click asks to rename it,
+    and renaming it to another speaker's name offers to merge the two."""
 
     rename_requested = Signal(str)
 
-    def __init__(self, label: str, name: str, words: int, colour: str, muted: str, parent: QWidget | None = None) -> None:
+    def __init__(self, label: str, name: str, words: int, colour: str, muted: str, parent: QWidget | None = None,
+                 seconds: float = 0.0) -> None:
         super().__init__(parent)
         self.label = label
         noun = "word" if words == 1 else "words"
+        share = f"{words:,} {noun}" + (f", {clock(seconds, tenths=False)}" if seconds > 0.0 else "")
         self.setText(
             f'<span style="color:{colour}; font-size:13pt;">&#9679;</span>&nbsp;<b>{name}</b>'
-            f'&nbsp;<span style="color:{muted};">{words:,} {noun}</span>'
+            f'&nbsp;<span style="color:{muted};">{share}</span>'
         )
         self.setTextFormat(Qt.TextFormat.RichText)
-        self.setToolTip("Double-click to rename this speaker")
+        self.setToolTip("Double-click to rename this speaker; another speaker's name merges the two")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 (Qt virtual)
@@ -326,6 +380,9 @@ class MainWindow(QMainWindow):
         self._batch_rows: list[int] = []
         self._batch_plan: Plan | None = None
         self._partials: dict[int, list[tuple[float, float, str]]] = {}
+        # The verification screen, at most one, and the review set it is open on.
+        self._review_window: Any = None
+        self._review_path: Path | None = None
 
         self.library_model = LibraryModel(self, settings.output_dir_or_none)
         self._build_ui()
@@ -366,6 +423,8 @@ class MainWindow(QMainWindow):
         self.brand_label = brand
         tagline = QLabel("offline transcription with speaker labels", top)
         tagline.setObjectName("muted")
+        # The tagline yields first when the window is narrow, so the bar fits a laptop screen.
+        tagline.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         top_layout.addWidget(brand)
         top_layout.addSpacing(4)
         top_layout.addWidget(tagline)
@@ -389,7 +448,7 @@ class MainWindow(QMainWindow):
         quality_label = QLabel("Quality", top)
         quality_label.setObjectName("muted")
         self.quality_box = QComboBox(top)
-        self.quality_box.setMinimumWidth(130)
+        self.quality_box.setMinimumWidth(110)
         self.quality_box.currentIndexChanged.connect(self._on_quality_changed)
         top_layout.addWidget(quality_label)
         top_layout.addWidget(self.quality_box)
@@ -459,6 +518,8 @@ class MainWindow(QMainWindow):
         self.library_view = LibraryView(sidebar, self.theme)
         self.library_view.setModel(self.library_model)
         self.library_view.selectionModel().currentRowChanged.connect(self._on_current_changed)
+        self.library_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.library_view.customContextMenuRequested.connect(self._library_menu)
         self.library_empty = QLabel("Drop recordings or folders here,\nor use Open files and Open folder.", sidebar)
         self.library_empty.setObjectName("hint")
         self.library_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -483,9 +544,9 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(10)
         titles = QVBoxLayout()
         titles.setSpacing(2)
-        self.title_label = QLabel("", header)
+        self.title_label = ElidedLabel("", header)
         self.title_label.setObjectName("title")
-        self.meta_label = QLabel("", header)
+        self.meta_label = ElidedLabel("", header, mode=Qt.TextElideMode.ElideRight)
         self.meta_label.setObjectName("muted")
         titles.addWidget(self.title_label)
         titles.addWidget(self.meta_label)
@@ -493,6 +554,14 @@ class MainWindow(QMainWindow):
         self.review_button = QPushButton("Review", header)
         self.review_button.setToolTip("Work through the spans where speech may be missing, with the audio")
         self.review_button.clicked.connect(self.open_review)
+        self.again_button = QPushButton("Transcribe again", header)
+        self.again_button.setObjectName("flat")
+        self.again_button.setToolTip(
+            "Transcribe this recording again with the current quality level and speaker setting; "
+            "its outputs and the decisions made on its review screen are replaced"
+        )
+        self.again_button.clicked.connect(lambda _checked=False: self.transcribe_again())
+        self.again_button.setEnabled(False)
         self.export_button = QPushButton("Export", header)
         self.export_button.setObjectName("flat")
         self.export_button.setToolTip("Write the outputs again in chosen formats, to a chosen folder")
@@ -502,9 +571,13 @@ class MainWindow(QMainWindow):
         self.folder_button.setObjectName("flat")
         self.folder_button.setToolTip("Open the folder that holds the outputs")
         self.folder_button.clicked.connect(self.show_outputs)
+        header_layout.addWidget(self.again_button)
         header_layout.addWidget(self.export_button)
         header_layout.addWidget(self.folder_button)
         header_layout.addWidget(self.review_button)
+        self.setTabOrder(self.again_button, self.export_button)
+        self.setTabOrder(self.export_button, self.folder_button)
+        self.setTabOrder(self.folder_button, self.review_button)
         detail_layout.addWidget(header)
 
         self.chips_widget = QWidget(detail)
@@ -565,6 +638,7 @@ class MainWindow(QMainWindow):
             self.open_files_button,
             self.open_folder_button,
             self.review_button,
+            self.again_button,
             self.folder_button,
             self.clear_button,
         ):
@@ -574,6 +648,11 @@ class MainWindow(QMainWindow):
 
         if len(self.settings.window_size) == 2:
             self.resize(max(900, self.settings.window_size[0]), max(600, self.settings.window_size[1]))
+        if len(self.settings.window_pos) == 2:
+            point = QPoint(int(self.settings.window_pos[0]), int(self.settings.window_pos[1]))
+            app = QApplication.instance()
+            if isinstance(app, QApplication) and app.screenAt(point) is not None:
+                self.move(point)
 
     def _build_player(self) -> None:
         self.player: QMediaPlayer | None = None
@@ -653,11 +732,16 @@ class MainWindow(QMainWindow):
             self.set_status("Stop the batch before removing recordings.")
             return
         self.library_model.remove_rows(rows)
-        self._current_row = None
         if self.library_model.rowCount() == 0:
+            self._current_row = None
             self._show_empty_detail()
-        else:
-            self.library_view.setCurrentIndex(self.library_model.index(min(rows[0], self.library_model.rowCount() - 1), 0))
+            return
+        # The selection model has already moved its current index to a neighbour, and setting
+        # an index that is current again emits no change, so the row is shown by hand.
+        current = self.library_view.selectionModel().currentIndex()
+        row = current.row() if current.isValid() else min(rows[0], self.library_model.rowCount() - 1)
+        self.library_view.setCurrentIndex(self.library_model.index(row, 0))
+        self.select_row(row)
 
     def _refresh_library_count(self) -> None:
         count = self.library_model.rowCount()
@@ -748,13 +832,21 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{item.name}  |  {APP_TITLE}")
         self.folder_button.setEnabled(True)
         self.export_button.setEnabled(doc is not None)
+        running = self.worker is not None and self.worker.isRunning()
+        self.again_button.setEnabled(item.status in (STATUS_DONE, STATUS_FAILED) and not running)
         if doc is not None:
             self._show_document(item, doc)
         else:
             self.transcript_view.set_document(None)
-            self.transcript_view.setPlaceholderText(
-                "Not transcribed yet. Choose a quality level and press Transcribe; the recording plays meanwhile."
-            )
+            if item.status == STATUS_FAILED:
+                self.transcript_view.setPlaceholderText(
+                    f"Transcription failed: {item.error}\n\nTranscribe again (in the header, or on the recording's "
+                    "right-click menu) tries it once more; the recording plays meanwhile."
+                )
+            else:
+                self.transcript_view.setPlaceholderText(
+                    "Not transcribed yet. Choose a quality level and press Transcribe; the recording plays meanwhile."
+                )
             self.player_bar.set_marks([])
             self.player_bar.set_peaks(None)
             self._duration_s = float(item.duration_s or 0.0)
@@ -776,15 +868,13 @@ class MainWindow(QMainWindow):
         chips, the Review button and the meta line."""
         session = None
         paths = output_paths(item.path, self.settings.output_dir_or_none)
+        marks = doc.get("marks", [])
         if item.transcript_path is not None:
             session_path = paths.review.with_name(f"{paths.review.stem}.session.json")
-            session = read_session_entries(session_path, len(doc.get("marks", [])))
+            session = read_session_entries(session_path, marks)
         self.transcript_view.set_document(doc, session)
-        marks = doc.get("marks", [])
-        self.player_bar.set_marks(
-            [(float(m["start"]), float(m["end"])) for m in marks],
-            [mark_resolution(m, session, index)[0] is not None for index, m in enumerate(marks)],
-        )
+        checked = [mark_resolution(m, session, index)[0] is not None for index, m in enumerate(marks)]
+        self.player_bar.set_marks([(float(m["start"]), float(m["end"])) for m in marks], checked)
         overview = doc.get("overview") or {}
         self.player_bar.set_peaks(overview.get("peaks"), int(overview.get("scale", 100)))
         self._duration_s = float(doc.get("duration_s", 0.0))
@@ -792,7 +882,13 @@ class MainWindow(QMainWindow):
         self._refresh_chips(doc)
         count = int(doc.get("review", {}).get("marks", 0))
         self.review_button.setEnabled(count > 0 and paths.review.is_file())
-        self.review_button.setText(f"Review ({count})" if count else "Review")
+        open_count = count - sum(1 for flag in checked if flag)
+        if not count:
+            self.review_button.setText("Review")
+        elif open_count == count:
+            self.review_button.setText(f"Review ({count})")
+        else:
+            self.review_button.setText(f"Review ({open_count} of {count} open)")
         self.meta_label.setText(self._meta_text(item, doc))
 
     def _meta_text(self, item: MediaItem, doc: dict[str, Any] | None) -> str:
@@ -855,7 +951,8 @@ class MainWindow(QMainWindow):
             if label is None:
                 continue
             chip = SpeakerChip(str(label), names.get(label, label), int(entry.get("words", 0)),
-                               self.theme.speaker(index).name(), muted, self.chips_widget)
+                               self.theme.speaker(index).name(), muted, self.chips_widget,
+                               seconds=float(entry.get("seconds", 0.0) or 0.0))
             chip.rename_requested.connect(self.rename_speaker)
             self.chips_layout.insertWidget(index, chip)
             index += 1
@@ -873,33 +970,77 @@ class MainWindow(QMainWindow):
         names = speaker_names(self._current_doc)
         typed, accepted = QInputDialog.getText(self, "Rename speaker", "Name for this speaker:",
                                                QLineEdit.EchoMode.Normal, names.get(label, label))
-        if not accepted or not typed.strip():
+        clean = " ".join(typed.split())
+        if not accepted or not clean:
+            if accepted:
+                self.set_status("A speaker's name cannot be empty; the name is unchanged.")
             return
-        self.apply_speaker_name(label, typed)
+        other = next((other_label for other_label, name in names.items() if name == clean and other_label != label), None)
+        if other is not None:
+            # Two speakers with one name is the clustering's own error made permanent; what a
+            # person means by it is that they are one voice.
+            answer = QMessageBox.question(
+                self,
+                "Merge speakers",
+                f"{clean} is already a speaker. Merge {names.get(label, label)} into {clean}, giving every line "
+                f"of the first to the second?\n\nThe transcript, text, Word and subtitle files are written again; "
+                "the run record keeps the run as it happened.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.merge_speaker(label, other)
+            return
+        self.apply_speaker_name(label, clean)
 
     def apply_speaker_name(self, label: str, name: str) -> None:
         """Rename without a dialog; writes the document and the text, Word and subtitle files."""
         if self._current_doc is None or self._current_row is None:
             return
-        item = self.library_model.item(self._current_row)
         try:
             updated = set_speaker_name(self._current_doc, label, name)
         except (KeyError, ValueError) as exc:
             self.set_status(f"Could not rename: {exc}")
             return
+        self._write_document_and_outputs(updated, f"Speaker renamed to {name.strip()}")
+
+    def merge_speaker(self, label: str, into: str) -> None:
+        """Give every line of one speaker to another and drop the first, for a voice the
+        clustering split in two; writes the document and the outputs again."""
+        if self._current_doc is None or self._current_row is None:
+            return
+        names = speaker_names(self._current_doc)
+        try:
+            updated = merge_speakers(self._current_doc, label, into)
+        except (KeyError, ValueError) as exc:
+            self.set_status(f"Could not merge: {exc}")
+            return
+        self._write_document_and_outputs(updated, f"{names.get(label, label)} merged into {names.get(into, into)}")
+
+    def _write_document_and_outputs(self, updated: dict[str, Any], what: str) -> None:
+        """Write a revised document for the current recording and its outputs, then show it;
+        an output that could not be written (a Word document open in Word) is named, and the
+        document still counts as written."""
+        if self._current_row is None:
+            return
+        item = self.library_model.item(self._current_row)
         paths = output_paths(item.path, self.settings.output_dir_or_none)
         try:
             write_document(updated, paths.transcript)
-            render_all(updated, paths.text, paths.docx, paths.subtitles, author=self.settings.author)
         except OSError as exc:
-            self.set_status(f"Could not write the outputs: {exc}")
+            self.set_status(f"Could not write the transcript document: {exc}")
             return
+        failures = render_outputs(updated, paths.text, paths.docx, paths.subtitles, author=self.settings.author)
         self._current_doc = updated
         position = self._position_s
-        self.transcript_view.set_document(updated, None)
+        scroll = self.transcript_view.scroll_value()
+        self._show_document(item, updated)
         self.transcript_view.set_position(position)
-        self._refresh_chips(updated)
-        self.set_status(f"Speaker renamed to {name.strip()}; text, Word and subtitles written again.")
+        self.transcript_view.set_scroll_value(scroll)
+        if failures:
+            self.set_status(f"{what}; {describe_failures(failures)}. The transcript is written; Export writes the file again.")
+        else:
+            self.set_status(f"{what}; text, Word and subtitles written again.")
 
     def show_outputs(self) -> None:
         if self._current_row is None:
@@ -916,6 +1057,14 @@ class MainWindow(QMainWindow):
 
         item = self.library_model.item(self._current_row)
         review_path = output_paths(item.path, self.settings.output_dir_or_none).review
+        existing = self._review_window
+        if existing is not None:
+            if self._review_path == review_path:
+                # One screen per review set: a second would write the same session file.
+                existing.raise_()
+                existing.activateWindow()
+                return
+            existing.close()
         try:
             review = load_review_set(review_path)
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -923,17 +1072,47 @@ class MainWindow(QMainWindow):
             return
         if self.player is not None:
             self.player.pause()
-        # The screen plays to the device chosen in the player bar, and the pane behind it
-        # follows every resolution it writes.
+        # The screen plays to the device chosen in the player bar, at its volume and speed,
+        # and the pane behind it follows every decision it writes.
         device = self.audio_output.device() if self.audio_output is not None else None
         window = VerifyWindow(review, review_path, self.theme, parent=None, author=self.settings.author,
-                              audio_device=device)
+                              audio_device=device, volume=float(self.settings.volume), rate=float(self.settings.rate))
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         window.resize(1120, 740)
-        window.transcript_changed.connect(lambda *_: self._reload_transcript())
-        window.destroyed.connect(lambda *_: self._reload_transcript())
+        window.transcript_changed.connect(lambda *_: self._reload_transcript(review_path))
+        window.mark_written.connect(self._on_mark_written)
+        window.destroyed.connect(lambda *_: self._on_review_closed(review_path))
+        if window.player is not None:
+            window.player.playbackStateChanged.connect(self._on_review_playback)
         window.show()
         self._review_window = window
+        self._review_path = review_path
+
+    def _on_review_closed(self, review_path: Path) -> None:
+        if self._review_path == review_path:
+            self._review_window = None
+            self._review_path = None
+        self._reload_transcript(review_path)
+
+    def _on_review_playback(self, state) -> None:
+        """Only one player sounds at a time: the screen playing pauses the window."""
+        if state == QMediaPlayer.PlaybackState.PlayingState and self.is_playing():
+            self.player.pause()
+
+    def _pause_review_screen(self) -> None:
+        screen = self._review_window
+        if screen is not None and screen.player is not None and screen.is_playing():
+            screen.player.pause()
+
+    def _on_mark_written(self, index: int) -> None:
+        """Bring the mark just decided on the screen into view in the pane and on the timeline."""
+        if self._review_window is None or self._current_doc is None:
+            return
+        item = self.library_model.item(self._current_row) if self._current_row is not None else None
+        if item is None or output_paths(item.path, self.settings.output_dir_or_none).review != self._review_path:
+            return
+        self.transcript_view.show_mark(index)
+        self.player_bar.timeline.set_current(index)
 
     def needs_models(self) -> bool:
         """True while no quality level is complete although a detector library is installed."""
@@ -941,7 +1120,7 @@ class MainWindow(QMainWindow):
 
     def open_models(self, modal: bool = True) -> ModelsDialog:
         """The models dialog; a fetch that ended is read into the store and the levels refreshed."""
-        dialog = ModelsDialog(self.models, self, explicit=bool(self.settings.models_dir))
+        dialog = ModelsDialog(self.models, self, explicit=bool(self.settings.models_dir), backends=self._backends)
         dialog.fetched.connect(self._on_models_fetched)
         if modal:
             dialog.exec()
@@ -990,19 +1169,25 @@ class MainWindow(QMainWindow):
             dialog.show()
         return dialog
 
-    def _reload_transcript(self) -> None:
+    def _reload_transcript(self, review_path: Path | None = None) -> None:
         """Read the current recording's document again and lay it out afresh, leaving the
-        player where it is: while the verification screen writes, and when it closes."""
+        player and the reader's place in the text where they are: while the verification
+        screen writes, and when it closes. With `review_path`, only when the current
+        recording is the one under review, so another row's job card or readout is left alone."""
         if self._current_row is None or not (0 <= self._current_row < self.library_model.rowCount()):
             return
         item = self.library_model.item(self._current_row)
+        if review_path is not None and output_paths(item.path, self.settings.output_dir_or_none).review != review_path:
+            return
         doc = self._load_document_for(item)
         if doc is None:
             self._load_item(item)
             return
         self._current_doc = doc
+        scroll = self.transcript_view.scroll_value()
         self._show_document(item, doc)
         self.transcript_view.set_position(self._position_s)
+        self.transcript_view.set_scroll_value(scroll)
 
     # ----- quality and transcription --------------------------------------------------
 
@@ -1056,8 +1241,13 @@ class MainWindow(QMainWindow):
         running = self.worker is not None and self.worker.isRunning()
         pending = self.library_model.pending_rows()
         self.transcribe_button.setEnabled(bool(pending) and self.selected_profile() is not None and not running)
-        if not pending:
-            self.transcribe_button.setToolTip("Every recording in the library has been transcribed")
+        if self.library_model.rowCount() == 0:
+            self.transcribe_button.setToolTip("Add recordings first: drop them on the window, or use Open files and Open folder")
+        elif not pending:
+            self.transcribe_button.setToolTip(
+                "Every recording in the library has been transcribed; Transcribe again, in the recording's header "
+                "or on its right-click menu, runs one of them again"
+            )
         elif self.selected_profile() is None:
             self.transcribe_button.setToolTip("No complete model set was found; press Get models or open Settings")
         else:
@@ -1104,7 +1294,10 @@ class MainWindow(QMainWindow):
         if not chosen:
             self.set_status("Nothing to transcribe.")
             return False
+        if not self._outputs_writable(chosen) or not self._decoder_present(chosen):
+            return False
         self.library_model.set_queued(chosen)
+        self.again_button.setEnabled(False)
         sources = [self.library_model.item(row).path for row in chosen]
         self.worker = PipelineWorker(
             chosen,
@@ -1149,6 +1342,113 @@ class MainWindow(QMainWindow):
         )
         self.worker.start()
         return True
+
+    def _outputs_writable(self, rows: Sequence[int]) -> bool:
+        """Every folder the chosen recordings' outputs go to accepts a file; else a message
+        names the folder and the remedy, before any engine has run."""
+        out_dir = self.settings.output_dir_or_none
+        folders = sorted({output_paths(self.library_model.item(row).path, out_dir).transcript.parent for row in rows}, key=str)
+        for folder in folders:
+            reason = writable_folder(folder)
+            if reason is not None:
+                QMessageBox.warning(
+                    self,
+                    "Cannot write the outputs",
+                    f"Nothing can be written in {folder}:\n{reason}\n\nChoose another output folder in Settings "
+                    "(Outputs, in one folder), or make the folder writable, then try again.",
+                )
+                self.set_status(f"Cannot write in {folder}; nothing was started.")
+                return False
+        return True
+
+    def _decoder_present(self, rows: Sequence[int]) -> bool:
+        """The decoder is found when a chosen recording needs it; else a message names the
+        three ways to provide it."""
+        if all(self.library_model.item(row).path.suffix.lower() == ".wav" for row in rows):
+            return True
+        try:
+            find_ffmpeg()
+        except FileNotFoundError:
+            QMessageBox.warning(
+                self,
+                "Decoder not found",
+                "The decoder (ffmpeg) was not found, and a recording that is not a WAV file needs it.\n\n"
+                "Install it with pip install twinscribe[ffmpeg], put ffmpeg (ffmpeg.exe) in a bin folder beside "
+                "the program, or name it in the TWINSCRIBE_FFMPEG environment variable, then try again.",
+            )
+            self.set_status("The decoder (ffmpeg) was not found; nothing was started.")
+            return False
+        return True
+
+    def transcribe_again(self, row: int | None = None, confirm: bool = True) -> bool:
+        """Queue one transcribed or failed recording again with the current quality level and
+        speaker setting, after a word of warning: its outputs are replaced and the decisions
+        made on its review screen set aside. Returns whether a batch started."""
+        if row is None:
+            row = self._current_row
+        if row is None or not (0 <= row < self.library_model.rowCount()):
+            return False
+        if self.worker is not None and self.worker.isRunning():
+            self.set_status("A batch is already running.")
+            return False
+        item = self.library_model.item(row)
+        if item.status not in (STATUS_DONE, STATUS_FAILED):
+            return False
+        if confirm:
+            profile = self.selected_profile()
+            level = profile.title if profile is not None else "the chosen"
+            count = self.settings.speakers_or_none
+            speakers = f"the speaker count fixed at {count}" if count is not None else "the speakers found by clustering"
+            answer = QMessageBox.question(
+                self,
+                "Transcribe again",
+                f"Transcribe {item.name} again at the {level} level, with {speakers}?\n\nIts transcript, text, Word "
+                "and subtitle files and its review list are replaced, and the decisions made on its review screen "
+                "are set aside.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        if self._review_window is not None and self._review_path == output_paths(item.path, self.settings.output_dir_or_none).review:
+            self._review_window.close()
+        self._set_aside_session(item)
+        return self.start_transcription([row])
+
+    def _set_aside_session(self, item: MediaItem) -> None:
+        """Rename the recording's review session so it cannot attach itself to a new transcript."""
+        review = output_paths(item.path, self.settings.output_dir_or_none).review
+        session = review.with_name(f"{review.stem}.session.json")
+        if session.is_file():
+            previous = review.with_name(f"{review.stem}.session.previous.json")
+            try:
+                previous.unlink(missing_ok=True)
+                session.rename(previous)
+            except OSError:
+                pass
+
+    def _library_menu(self, position) -> None:
+        """The right-click menu of a library row."""
+        index = self.library_view.indexAt(position)
+        if not index.isValid():
+            return
+        row = index.row()
+        item = self.library_model.item(row)
+        menu = QMenu(self.library_view)
+        if item.status in (STATUS_DONE, STATUS_FAILED):
+            again = menu.addAction("Transcribe again")
+            again.triggered.connect(lambda _checked=False, r=row: self.transcribe_again(r))
+        if item.status == STATUS_DONE:
+            outputs = menu.addAction("Show outputs")
+            outputs.triggered.connect(lambda _checked=False, r=row: self._show_outputs_of(r))
+        remove = menu.addAction("Remove from library")
+        remove.triggered.connect(lambda _checked=False: self.remove_selected())
+        menu.exec(self.library_view.viewport().mapToGlobal(position))
+
+    def _show_outputs_of(self, row: int) -> None:
+        item = self.library_model.item(row)
+        folder = output_paths(item.path, self.settings.output_dir_or_none).transcript.parent
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def stop_transcription(self) -> None:
         if self.worker is not None and self.worker.isRunning():
@@ -1227,13 +1527,23 @@ class MainWindow(QMainWindow):
             text += ", stopped early"
         if result is not None and result.record_path is not None:
             text += f". Record: {result.record_path.name}"
+        elif result is not None and getattr(result, "record_error", None):
+            text += f". The batch record could not be written ({result.record_error}); the outputs are in place"
         self.set_status(text + ".")
         self.worker = None
         self._refresh_transcribe_button()
+        if self._current_row is not None and 0 <= self._current_row < self.library_model.rowCount():
+            self.again_button.setEnabled(self.library_model.item(self._current_row).status in (STATUS_DONE, STATUS_FAILED))
 
     # ----- playback -------------------------------------------------------------------
 
     def _set_source(self, path: Path) -> None:
+        if self.player is not None and self._current_path is not None and self._current_path == path:
+            # The recording already in the player: laid out again, not loaded again, so the
+            # readout, the playhead and the nudge base stay where the player is.
+            self.transcript_view.set_position(self._position_s)
+            self.job_card.set_position(self._position_s)
+            return
         self._stop_at_s = None
         self._pending_seek_s = None
         self._position_s = 0.0
@@ -1242,8 +1552,6 @@ class MainWindow(QMainWindow):
         self.job_card.set_position(-1.0)
         if self.player is None:
             self.player_bar.set_available(False)
-            return
-        if self._current_path is not None and self._current_path == path:
             return
         self._current_path = path
         self._player_error = None
@@ -1263,6 +1571,7 @@ class MainWindow(QMainWindow):
         if self.is_playing():
             self.player.pause()
         else:
+            self._pause_review_screen()
             self.player.play()
 
     def seek(self, seconds: float) -> None:
@@ -1305,6 +1614,7 @@ class MainWindow(QMainWindow):
         self._seek(seconds)
         if self.player is None or self._current_path is None:
             return
+        self._pause_review_screen()
         self.player.play()
 
     def nudge(self, delta_s: float) -> None:
@@ -1326,6 +1636,7 @@ class MainWindow(QMainWindow):
         if self.player is None or self._current_path is None:
             return
         self._stop_at_s = end
+        self._pause_review_screen()
         self.player.play()
         self.set_status(f"Playing {clock(start)} to {clock(end)}.")
 
@@ -1412,6 +1723,8 @@ class MainWindow(QMainWindow):
         """List the system's output devices in the player bar; the list follows the system."""
         devices = [(self._device_id(d), d.description()) for d in QMediaDevices.audioOutputs()]
         self.player_bar.set_devices(devices, self.settings.audio_device)
+        # A kept device that has come back is played to again, not only shown as chosen.
+        self._apply_audio_device(self.settings.audio_device)
 
     def _apply_audio_device(self, device_id: str) -> None:
         """Play to the device with this id when it is present, else to the system default."""
@@ -1439,8 +1752,7 @@ class MainWindow(QMainWindow):
         """Re-read the models, the outputs location and the palette after the settings changed."""
         self.models = find_models(self.settings.models_dir or None)
         self.library_model.set_output_dir(self.settings.output_dir_or_none)
-        for row in range(self.library_model.rowCount()):
-            self.library_model.refresh_item(row)
+        self.library_model.refresh_all()
         self._refresh_quality_box()
         if theme_changed:
             app = QApplication.instance()
@@ -1452,7 +1764,11 @@ class MainWindow(QMainWindow):
             position = self._position_s
             self._load_item(self.library_model.item(self._current_row))
             self.transcript_view.set_position(position)
-        save_settings(self.settings)
+        try:
+            save_settings(self.settings)
+        except OSError as exc:
+            self.set_status(f"Settings applied, but could not be saved: {exc}")
+            return
         self.set_status("Settings saved.")
 
     def set_status(self, text: str) -> None:
@@ -1485,6 +1801,9 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_F:
             self._on_follow_toggled(not self.transcript_view.follow())
         elif key == Qt.Key.Key_Delete:
+            # Removal is the library's own key; from any other pane Delete means nothing.
+            if not self.library_view.hasFocus():
+                return False
             self.remove_selected()
         else:
             return False
@@ -1501,6 +1820,9 @@ class MainWindow(QMainWindow):
             if event.matches(QKeySequence.StandardKey.Open):
                 self.open_files()
                 return True
+            # A button keeps Space and Enter, which press it; the window's keys take the rest.
+            if isinstance(watched, QAbstractButton) and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                return super().eventFilter(watched, event)
             if self.handle_key(event.key(), event.modifiers()):
                 return True
         return super().eventFilter(watched, event)
@@ -1523,13 +1845,19 @@ class MainWindow(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(15000)
+        if self._review_window is not None:
+            # The screen belongs to this window; it does not outlive it.
+            self._review_window.close()
         if self.player is not None:
             self._stop_at_s = None
             self.player.stop()
             self.player.setSource(QUrl())
         self.settings.library = [str(item.path) for item in self.library_model.items()]
         self.settings.splitter = list(self.splitter.sizes())
-        self.settings.window_size = [self.width(), self.height()]
+        self.settings.maximized = bool(self.isMaximized())
+        geometry = self.normalGeometry() if self.isMaximized() else self.geometry()
+        self.settings.window_size = [geometry.width(), geometry.height()]
+        self.settings.window_pos = [geometry.x(), geometry.y()]
         try:
             save_settings(self.settings)
         except OSError:
@@ -1618,7 +1946,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         window.add_paths(list(args.paths))
     if args.select is not None:
         window.library_view.setCurrentIndex(window.library_model.index(args.select, 0))
-    window.show()
+    if settings.maximized and args.shot is None:
+        window.showMaximized()
+    else:
+        window.show()
     if args.shot is None and window.needs_models():
         QTimer.singleShot(250, lambda: window.open_models())
     if args.seek is not None:

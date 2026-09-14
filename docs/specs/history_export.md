@@ -52,3 +52,9 @@ cap, removal and clearing, tolerance of foreign files; every export format with 
 checked (the Word author, the WebVTT header, a copied review list, the self-copy guard); the
 dialogs offscreen: default selections, disabled formats, the export result and its status, the
 clipboard, the history table's columns and muted rows, the add signal, removal.
+
+## The history's clock, and the listener's decisions on export
+
+The "When" column shows the time in the machine's own time zone; the records carry UTC.
+Exporting the review list also copies the review session beside it, when there is one, so a
+pass can go on from the exported folder with the listener's decisions.

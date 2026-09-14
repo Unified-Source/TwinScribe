@@ -4,6 +4,7 @@ document beside a synthetic recording."""
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -81,7 +82,9 @@ def test_history_dialog_lists_and_acts(app: QApplication, recording: Path, tmp_p
     append_entry(entry, history_file)
     dialog = HistoryDialog(theme_for(False), author="A Person", history_path=history_file)
     assert dialog.table.columnCount() == len(COLUMNS) and dialog.table.rowCount() == 2
-    assert dialog.table.item(0, 1).text() == "call.wav" and dialog.table.item(0, 0).text() == "2026-01-01 10:20"
+    # The stamp is shown in the machine's own time zone; the record carries UTC.
+    local = datetime.fromisoformat("2026-01-01T10:20:30+00:00").astimezone().strftime("%Y-%m-%d %H:%M")
+    assert dialog.table.item(0, 1).text() == "call.wav" and dialog.table.item(0, 0).text() == local
     assert dialog.table.item(0, 3).text() == "Standard" and dialog.table.item(0, 2).text() == "0:30"
     assert "(outputs missing)" in dialog.table.item(1, 6).text()
     assert "2 recordings transcribed" in dialog.summary.text()

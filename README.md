@@ -76,7 +76,12 @@ the costly half; what that saves and costs is measured in `docs/specs/bench.note
 they are decoded; they can be read without being pulled to the newest line, clicked to move
 the playhead, and played from. The number of speakers can be given when it is known; by
 default the count comes from clustering, so a speaker the models cannot separate is missing
-from the labels, where the word counts show it, rather than hidden inside another. The one
+from the labels, where the word counts show it, rather than hidden inside another; a speaker
+the clustering split in two is merged by renaming one to the other's name. A recording can be
+transcribed again, at another level or with a speaker count, from its header or the library's
+right-click menu; from the command line, `run` skips what is already transcribed unless told
+otherwise. History lists every recording transcribed on the machine, and Export writes the
+outputs again in chosen formats to a chosen folder. The one
 thing in the package that reaches the network is the fetch of the models, and it runs only when
 asked: the Get models dialog the window offers while no quality level is complete, or the
 `fetch-models` command.
@@ -141,14 +146,15 @@ and the speaker models ran on the processor.
 *Verifying.* The Review button opens the verification screen for the recording's review list:
 a bar of the whole recording with every mark on it, the list of marks, the published
 transcript either side of each gap, and a words box holding what the second engine heard
-there as the starting point for what was actually said. Selecting a mark plays its span. Three
-decisions per mark: nothing was said (N), keep the words in the box once they are right
-(Ctrl+Enter), or reopen a mark decided in error (O). Every decision is written at once into
-the transcript document and its text, Word and subtitle files: the listener's words become a
-line of their own at the gap's time, marked "heard on review" in every output, the checked
-marks turn green on both timelines, and the window behind follows as the screen writes; the
-engine's words are never altered. A session file beside the review list records every
-decision, so a pass can be resumed later.
+there as the starting point for what was actually said, with a box to say who spoke. Selecting
+a mark plays its span. Three decisions per mark: nothing was said (N), keep the words in the
+box once they are right (Ctrl+Enter), or reopen a mark decided in error (O). Every decision is
+written at once into the transcript document and its text, Word and subtitle files: the
+listener's words become a line of their own where they were said, the line around them split
+at the gap, marked "heard on review" in every output; the checked marks turn green on both
+timelines, and the window behind follows as the screen writes; the engine's words are never
+altered. A session file beside the review list records every decision, and the transcript
+records them too, so a pass can be resumed later, even from an exported folder.
 
 To do the same: fetch the models once, open the window on a folder, press Transcribe.
 
@@ -159,6 +165,23 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-14, a review of the application in use.** Thirteen independent readings of the
+  window, the screen, the outputs and the command line, checked against the code and by
+  driving the window, found the defects this change answers. Two recordings of one name sent
+  to one output folder overwrote each other and each was shown as done on the other's
+  transcript; the outputs now yield to the folder's name, and the library checks a document
+  is the recording's own. Escape in the models dialog during a download closed the whole
+  program; it now cancels and waits. The buttons could not be pressed from the keyboard and
+  Ctrl+C copied nothing from the transcript; both work. Pressing Review twice opened two screens
+  writing one session; there is one, and it plays at the player bar's volume and speed while
+  the two players take turns. Words kept for a gap inside a line landed after the whole line
+  under the wrong name, or none; the line is split around them and they take its speaker, and
+  the screen lets the listener say who spoke. A session from an earlier transcription showed
+  marks as checked; a transcribed recording could not be transcribed again; a speaker split in
+  two could not be merged; a folder of hundreds of recordings froze the window; a long name
+  pushed the buttons off the screen; a Word document open in Word made a decision report
+  failure although the transcript was written; a folder that refused writes hung the run. Each
+  has its own entry in `docs/specs/batch_app.notes.md`.
 - **2026-09-10, the review pass.** The verification screen took the words through a prompt
   and put them into the transcript only on a separate key, so a listener who typed what was
   said and closed the screen found the transcript and its text file unchanged, and nothing

@@ -163,7 +163,7 @@ transcript recording that its word times are approximate.
      running with a progress ring and bar, done with a tick, failed with a warning), its name,
      its folder or its state, its duration; an empty-state hint when empty;
    - right, the recording: name and a meta line (duration, speakers, level, review count);
-     speaker chips with word counts (double-click renames, which rewrites the text, Word and
+     speaker chips with word counts and seconds (double-click renames, which rewrites the text, Word and
      subtitle files); a video pane shown only when the file has video; the transcript pane,
      or, while the recording is queued or being worked on, the job card in its place: a stage
      strip with the current stage lit and the finished ones ticked, a progress bar and
@@ -198,7 +198,9 @@ transcript recording that its word times are approximate.
 - Clicking a line's time seeks to it; double-clicking a line seeks to it; clicking the
   timeline seeks.
 - Keys: Space play or pause; Left and Right nudge five seconds; J and K play the next and
-  previous review span; F toggles following; Delete removes the selected recordings; Ctrl+O
+  previous review span; F toggles following; Delete, in the library, removes the selected
+  recordings; Ctrl+C copies the text selected in the pane and Ctrl+A selects it all; Space and
+  Enter on a focused button press it; Ctrl+O
   and Ctrl+Shift+O open files and a folder.
 - Transcribe queues every recording not yet done, runs the batch in a thread and updates each
   row as it goes; the current recording shows the job card while it waits and while it runs,
@@ -220,9 +222,13 @@ transcript recording that its word times are approximate.
   loaded in the player as soon as it is selected, so a passage can be checked against the
   audio before the transcript is finished.
 - Review opens the verification screen of `verify_app.md` on the recording's review set,
-  playing to the output device chosen in the player bar; the pane follows every resolution
-  the screen writes and is laid out again when it closes. Show outputs opens the folder that
-  holds the outputs.
+  playing to the output device chosen in the player bar at its volume and speed; there is one
+  screen at a time, pressing Review again brings it to the front, and opening it for another
+  recording closes the first. Only one player sounds: the screen playing pauses the window and
+  the window playing pauses the screen. The pane follows every decision the screen writes for
+  that recording, keeping the reader's place and bringing the decided mark into view, and is
+  laid out again when the screen closes; the button counts the marks still open. The screen
+  closes with the window. Show outputs opens the folder that holds the outputs.
 - Settings: models folder (with a report of what it holds), outputs beside each recording or
   in one folder, author, threads, acceleration (automatic, processor only, CUDA device) with
   the plan the choice yields, light or dark. Settings, volume, speed, follow, the library and
@@ -280,3 +286,58 @@ its voice detector finds inside them and not the silence; the run record says
 published words and what the checker heard in the windows. The bench carries an arm for it
 (`whisper-turbo-gaps`, scored as `review-gaps`) beside the full check, so the saving and the
 cost in marks are measured on the same recordings.
+
+## One output folder and two recordings of one name
+
+With the outputs in one folder, `day1/recording.wav` and `day2/recording.wav` would share
+every output name. The run record written beside the outputs names its input, so
+`output_paths` reads it: a name already taken by another recording's outputs yields to the
+parent folder's name in front (`day2-recording`), then to a short digest of the path. Every
+caller resolves paths through the same rule, so the library, the window and the batch agree,
+and a document about one recording is never shown as the other's. The library also checks a
+document's recorded file size against the recording's before showing it as transcribed.
+
+## Before a batch starts
+
+Every folder the chosen recordings' outputs go to is probed with one file before an engine
+runs; a folder that refuses names the remedy in a message. The JSON writer makes one attempt
+at its temporary file, so a folder that refuses writes fails at once rather than spinning.
+When a chosen recording is not a WAV file, the decoder must be found, else a message names
+the three ways to provide it. A batch record that cannot be written under the application
+home does not turn the recordings into failures: the status line says the record could not
+be written and the outputs are in place.
+
+## Transcribe again
+
+A transcribed or failed recording can be transcribed again with the current quality level and
+speaker setting: a Transcribe again button in the recording's header and an entry on the
+library's right-click menu, after a question that names the level and the speaker setting and
+says that the outputs and the decisions made on the review screen are replaced. The review
+session is set aside as `<stem>.review.session.previous.json` so it cannot attach itself to
+the new transcript; a screen open on the recording is closed first. The command line skips
+recordings already transcribed unless `--again` is given, for the same reason.
+
+## Merging speakers
+
+Renaming a speaker to another speaker's name offers to merge the two: every line of the first
+goes to the second, the first's entry leaves the summary and the counts are made again, for a
+voice the clustering split in two. The outputs are written again; the run record keeps the
+run as it happened.
+
+## The library at scale
+
+The library keeps a table from each recording's resolved path to its row, and lists each
+folder once while a batch of recordings is added or refreshed (`folder_cache` in the
+pipeline), so a folder of hundreds of recordings is added in about a second rather than a
+minute. Outside such a block nothing is cached: a folder's modification stamp does not change
+on every platform when a file is added.
+
+## Long names and narrow screens
+
+The recording's name and the meta line in the header are cut in the middle to the width they
+have, with the whole text in the tool tip, so a long generated name or a long failure message
+never forces the window wider than the screen; the tagline in the top bar yields first when
+the window is narrow. After a removal the recording shown is the current one, so every button
+works on it. Reloading the recording already in the player (Settings, a finished batch) leaves
+the readout and the playhead where the player is. The window's position and whether it was
+maximised are kept with its size.

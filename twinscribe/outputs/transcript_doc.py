@@ -297,6 +297,50 @@ def set_speaker_name(doc: Mapping[str, Any], label: str, name: str) -> dict[str,
     raise KeyError(f"no speaker labelled {label!r}")
 
 
+def recount_speakers(doc: dict[str, Any]) -> None:
+    """Words and seconds per label from the lines, in place, keeping the entries' order and
+    names; a label the lines carry and the table lacks is appended without a name."""
+    words: dict[Any, int] = {}
+    seconds: dict[Any, float] = {}
+    order: list[Any] = []
+    for line in doc.get("lines", []):
+        label = line.get("speaker")
+        if label not in words:
+            order.append(label)
+            words[label] = 0
+            seconds[label] = 0.0
+        words[label] += len(line.get("words", []))
+        seconds[label] += max(0.0, float(line.get("end", 0.0)) - float(line.get("start", 0.0)))
+    existing = {entry.get("label"): entry for entry in doc.get("speakers", [])}
+    speakers: list[dict[str, Any]] = []
+    for entry in doc.get("speakers", []):
+        label = entry.get("label")
+        speakers.append({**entry, "words": words.get(label, 0), "seconds": float(seconds.get(label, 0.0))})
+    for label in order:
+        if label not in existing:
+            speakers.append({"label": label, "name": None, "words": words[label], "seconds": float(seconds[label])})
+    doc["speakers"] = speakers
+
+
+def merge_speakers(doc: Mapping[str, Any], label: str, into: str) -> dict[str, Any]:
+    """A copy of the document with every line of `label` given to `into`, the entry for
+    `label` removed and the counts made again, for a voice the clustering split in two; the
+    run record keeps the run as it happened. Unknown labels raise KeyError."""
+    if label == into:
+        raise ValueError("a speaker cannot be merged into itself")
+    updated = json.loads(json.dumps(dict(doc)))
+    labels = {entry.get("label") for entry in updated.get("speakers", [])}
+    for wanted in (label, into):
+        if wanted not in labels:
+            raise KeyError(f"no speaker labelled {wanted!r}")
+    for line in updated.get("lines", []):
+        if line.get("speaker") == label:
+            line["speaker"] = into
+    updated["speakers"] = [entry for entry in updated.get("speakers", []) if entry.get("label") != label]
+    recount_speakers(updated)
+    return updated
+
+
 def speaker_count(doc: Mapping[str, Any]) -> int:
     """Number of labelled speakers."""
     return sum(1 for entry in doc.get("speakers", []) if entry.get("label") is not None)

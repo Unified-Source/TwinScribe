@@ -200,7 +200,7 @@ def test_summary_and_header_text(tmp_path: Path) -> None:
         "marks cover 80% of dropped words (8 of 10)")
     header = verify.header_text(plain, tmp_path / "call.wav")
     assert header.startswith("call.wav")
-    assert "0.5 min" in header
+    assert "0:30" in header                                  # the length as m:ss, not a decimal of minutes
     assert "published by transducer tdt-0.6b" in header
     assert "checked against whisper small, which is never published" in header
 
@@ -389,7 +389,7 @@ def test_n_resolves_and_advances(window: verify.VerifyWindow) -> None:
     assert window.summary_label.text().endswith("1 of 3 checked")
     assert "nothing was said" in window.status_label.text()
     # With no transcript document beside the review set, the session file alone keeps it.
-    assert "the session file keeps the resolutions" in window.status_label.text()
+    assert "the session file keeps the decisions" in window.status_label.text()
     assert window.mark_list.item(0).text().endswith("nothing said")
 
 
@@ -402,6 +402,7 @@ def test_t_and_ctrl_enter_keep_the_words_in_the_box(window: verify.VerifyWindow)
     assert "Ctrl+Enter" in window.status_label.text()
     window.words_edit.setPlainText("yes I am here now")
     QTest.keyClick(window.words_edit, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(window.mark_list, Qt.Key.Key_Control)     # the modifier state must not leak into later tests
     assert window.resolutions[0].status == "text"
     assert window.resolutions[0].note == "yes I am here now"
     assert window.current_index == 1
@@ -517,7 +518,7 @@ def test_session_file_written_on_resolution_and_close(app: QApplication, tmp_pat
     doc = json.loads(session.read_text(encoding="utf-8"))
     assert doc["schema"] == "twinscribe.review-session.v1"
     assert [m["status"] for m in doc["marks"]] == ["nothing", "open", "open"]
-    assert doc["marks"][0] == {"start": 3.1, "end": 6.4, "status": "nothing", "note": ""}
+    assert doc["marks"][0] == {"start": 3.1, "end": 6.4, "status": "nothing", "note": "", "speaker": None}
 
     win.words_edit.setPlainText("one more thing")
     win.keep_words()
@@ -526,7 +527,7 @@ def test_session_file_written_on_resolution_and_close(app: QApplication, tmp_pat
     doc = json.loads(session.read_text(encoding="utf-8"))
     assert [m["status"] for m in doc["marks"]] == ["nothing", "text", "open"]
     assert doc["marks"][1]["note"] == "one more thing"
-    assert doc["marks"][2] == {"start": 19.6, "end": 24.4, "status": "open", "note": ""}
+    assert doc["marks"][2] == {"start": 19.6, "end": 24.4, "status": "open", "note": "", "speaker": None}
     assert not list(tmp_path.glob("*.tmp"))
     win.deleteLater()
     app.processEvents()
@@ -608,6 +609,7 @@ def test_no_marks_constructs(app: QApplication, tmp_path: Path) -> None:
     for key in (Qt.Key.Key_N, Qt.Key.Key_T, Qt.Key.Key_O, Qt.Key.Key_J, Qt.Key.Key_K, Qt.Key.Key_Return):
         QTest.keyClick(win, key)
     QTest.keyClick(win, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(win, Qt.Key.Key_Control)
     assert win.current_index is None
     assert win.apply_to_transcript() is None
     dispose(app, win)
@@ -657,7 +659,7 @@ def test_every_resolution_is_written_into_the_transcript(app: QApplication, tmp_
     listener = [line for line in revised["lines"] if line.get("src") == "listener"]
     assert len(listener) == 1 and listener[0]["text"] == "yes I am here"
     assert listener[0]["start"] == pytest.approx(review.marks[0].span_start)
-    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here"}
+    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here", "speaker": ""}
     assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
     assert "Transcript written: 1 span with the listener's words, 0 silent, 1 still open" in window.status_label.text()
     assert len(changed) == 1 and changed[0]["review_applied"]["text"] == 1
@@ -694,7 +696,131 @@ def test_every_resolution_is_written_into_the_transcript(app: QApplication, tmp_
     window = verify.VerifyWindow(verify.load_review_set(lonely), lonely, theme_for(False))
     assert "No transcript document beside the review set" in window.status_label.text()
     window.resolve_nothing()
-    assert "the session file keeps the resolutions" in window.status_label.text()
+    assert "the session file keeps the decisions" in window.status_label.text()
     assert verify.session_path_for(lonely).is_file()
     assert window.apply_to_transcript() is None and "No transcript document" in window.status_label.text()
+    window.close()
+
+
+# ----- the corrective measures of the review pass ------------------------------------------------
+
+
+def _recording_with_outputs(tmp_path: Path):
+    """A transcript document, its outputs and its review set beside a recording name."""
+    from tests._fixtures import detector_transcript, make_document, published_transcript
+    from twinscribe.outputs import render_all
+    from twinscribe.outputs.transcript_doc import write_document
+    from twinscribe.pipeline import output_paths
+    from twinscribe.review import build_review, review_set, write_review_set
+
+    doc = make_document("call.wav")
+    paths = output_paths(tmp_path / "call.wav")
+    write_document(doc, paths.transcript)
+    render_all(doc, paths.text, paths.docx, paths.subtitles)
+    published, detector = published_transcript(), detector_transcript()
+    write_review_set(review_set(published, detector, "call.wav", build_review(published.words, detector.words, 30.0)), paths.review)
+    return doc, paths
+
+
+def test_decisions_in_the_document_seed_a_pass_whose_session_is_gone(app: QApplication, tmp_path: Path) -> None:
+    from twinscribe.amend import apply_resolutions
+    from twinscribe.outputs.transcript_doc import load_document, write_document
+
+    doc, paths = _recording_with_outputs(tmp_path)
+    write_document(apply_resolutions(doc, [{"status": "text", "note": "earlier words"}, {"status": "open", "note": ""}]), paths.transcript)
+    window = verify.VerifyWindow(verify.load_review_set(paths.review), paths.review, theme_for(False))
+    assert window.done_count() == 1 and "from the transcript document" in window.status_label.text()
+    assert window.current_index == 1                             # the first open mark
+    assert window.resolutions[0].note == "earlier words" and window.mark_list.item(0).text().startswith(TICK)
+    window.resolve_nothing()
+    on_disk = load_document(paths.transcript)
+    assert [line["text"] for line in on_disk["lines"] if line.get("src") == "listener"] == ["earlier words"]
+    assert on_disk["review_applied"] == {**on_disk["review_applied"], "text": 1, "nothing": 1, "open": 0}
+    window.close()
+
+
+def test_a_stale_session_is_named_and_a_resumed_pass_starts_at_the_first_open_mark(app: QApplication, tmp_path: Path) -> None:
+    review_path = write_review(tmp_path)
+    session = verify.session_path_for(review_path)
+    session.write_text(json.dumps({
+        "schema": "twinscribe.review-session.v1",
+        "marks": [{"start": 99.0, "end": 100.0, "status": "nothing", "note": ""}],
+    }), encoding="utf-8")
+    win = make_window(app, review_path)
+    assert win.done_count() == 0 and "did not match these marks and was set aside" in win.status_label.text()
+    dispose(app, win)
+    marks = [verify._mark_from_dict(m) for m in MARKS]
+    earlier = verify.fresh_resolutions(marks)
+    earlier[0].status = "nothing"
+    earlier[1].status = "text"
+    earlier[1].note = "carried over"
+    verify.write_session(session, earlier)
+    win = make_window(app, review_path)
+    assert win.current_index == 2 and "from the session file" in win.status_label.text()
+    win.select_mark(0)
+    assert win.hint_label.text().startswith("Recorded as nothing said.")
+    dispose(app, win)
+
+
+def test_focus_returns_to_the_list_and_the_span_end_keeps_the_status(window: verify.VerifyWindow) -> None:
+    from PySide6.QtMultimedia import QMediaPlayer
+
+    QTest.keyClick(window.mark_list, Qt.Key.Key_T)
+    window.words_edit.setPlainText("kept words")
+    window.keep_words()
+    assert window.current_index == 1 and window.focusWidget() is not window.words_edit
+    assert window.status_label.text().startswith('Mark 1: "kept words"')
+    # The pause the screen makes at the end of the next span leaves that sentence in place.
+    window.audio_available = True
+    window._stop_at_s = 12.4
+    window._on_position_changed(12500)
+    window._on_playback_state_changed(QMediaPlayer.PlaybackState.PausedState)
+    assert window.status_label.text().startswith('Mark 1: "kept words"')
+    # A pause the listener asks for is announced as before.
+    window._on_playback_state_changed(QMediaPlayer.PlaybackState.PausedState)
+    assert window.status_label.text().startswith("Paused at")
+
+
+def test_the_speaker_of_the_words_can_be_chosen_and_the_context_names_the_speakers(app: QApplication, tmp_path: Path) -> None:
+    from twinscribe.amend import listener_line_for
+    from twinscribe.outputs.transcript_doc import load_document
+
+    doc, paths = _recording_with_outputs(tmp_path)
+    window = verify.VerifyWindow(verify.load_review_set(paths.review), paths.review, theme_for(False))
+    labels = [window.speaker_box.itemData(i) for i in range(window.speaker_box.count())]
+    assert labels == [None, "speaker_00", "speaker_01", ""]
+    assert window.speaker_box.itemText(1) == "Speaker 1" and window.speaker_box.currentData() is None
+    context = window.context_panel.toPlainText()
+    assert context.startswith("Speaker 1: good morning") and "[ GAP ] Speaker 2: you can start now" in context
+    window.speaker_box.setCurrentIndex(window.speaker_box.findData("speaker_01"))
+    window.words_edit.setPlainText("yes I am here")
+    window.keep_words()
+    assert ', as Speaker 2.' in window.status_label.text()
+    line = listener_line_for(load_document(paths.transcript), 0)
+    assert line is not None and line["speaker"] == "speaker_01"
+    session = json.loads(window.session_path.read_text(encoding="utf-8"))
+    assert session["marks"][0]["speaker"] == "speaker_01"
+    window.select_mark(0)
+    assert window.speaker_box.currentData() == "speaker_01"
+    window.speaker_box.setCurrentIndex(window.speaker_box.findData(""))
+    window.keep_words()
+    assert "without a speaker" in window.status_label.text()
+    assert listener_line_for(load_document(paths.transcript), 0)["speaker"] is None
+    window.close()
+
+
+def test_an_output_held_by_another_program_does_not_hide_the_write(app: QApplication, tmp_path: Path) -> None:
+    doc, paths = _recording_with_outputs(tmp_path)
+    paths.docx.unlink()
+    paths.docx.mkdir()                                            # stands where the Word document goes
+    window = verify.VerifyWindow(verify.load_review_set(paths.review), paths.review, theme_for(False))
+    changed: list[dict] = []
+    window.transcript_changed.connect(changed.append)
+    window.words_edit.setPlainText("yes")
+    window.keep_words()
+    status = window.status_label.text()
+    assert len(changed) == 1 and status.startswith('Mark 1: "yes"')
+    assert "Transcript written: 1 span" in status and "could not write the Word document (call.docx" in status
+    assert "(heard on review): yes" in paths.text.read_text(encoding="utf-8")
+    assert window.done_count() == 1
     window.close()

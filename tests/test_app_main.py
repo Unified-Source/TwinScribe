@@ -25,7 +25,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from tests._fixtures import make_document, make_engines, make_models, make_plan_for  # noqa: E402
 from twinscribe import audio  # noqa: E402
 from twinscribe.app import main as app_main  # noqa: E402
-from twinscribe.app.library import STATUS_DONE, STATUS_NEW, read_document_facts  # noqa: E402
+from twinscribe.app.library import STATUS_DONE, STATUS_NEW, document_is_for, read_document_facts  # noqa: E402
 from twinscribe.app.settings import AppSettings, load_settings, save_settings  # noqa: E402
 from twinscribe.app.theme import apply_theme, stylesheet, theme_for  # noqa: E402
 from twinscribe.app.timeline import Timeline  # noqa: E402
@@ -144,7 +144,11 @@ def test_timeline_peaks(app: QApplication) -> None:
 
 def test_read_document_facts(media: dict[str, Path], tmp_path: Path) -> None:
     facts = read_document_facts(output_paths(media["done"]).transcript)
-    assert facts == {"name": "call.wav", "duration_s": 30.0, "speakers": 2, "marks": 2}
+    assert facts == {"name": "call.wav", "bytes": 960044, "duration_s": 30.0, "speakers": 2, "marks": 2}
+    # The document is this recording's: same name and, since both are known, same size.
+    assert document_is_for(facts, media["done"])
+    assert not document_is_for({**facts, "bytes": 12}, media["done"])
+    assert not document_is_for(facts, media["done"].with_name("other.wav"))
     assert read_document_facts(tmp_path / "absent.json") is None
     other = tmp_path / "other.json"
     other.write_text(json.dumps({"schema": "x"}), encoding="utf-8")
@@ -638,7 +642,7 @@ def test_checked_marks_show_in_the_pane_and_on_the_timeline(app: QApplication, t
     assert window.player_bar.timeline._resolved == [True, True]
     assert window.player_bar.timeline.playhead() == pytest.approx(7.0)   # the player was left alone
     mark, in_document = mark_resolution(load_document(paths.transcript)["marks"][0], None, 0)
-    assert in_document and mark == {"status": "text", "note": "yes I am here"}
+    assert in_document and mark == {"status": "text", "note": "yes I am here", "speaker": ""}
     assert mark_resolution({"start": 0.0, "end": 1.0}, [{"status": "open"}], 0) == (None, False)
     assert mark_resolution({"start": 0.0, "end": 1.0}, [{"status": "nothing"}], 0) == ({"status": "nothing"}, False)
     dispose(app, window)
@@ -670,4 +674,155 @@ def test_the_review_screen_writes_through_to_the_window(app: QApplication, tmp_p
     screen.close()
     app.processEvents()
     assert "Checked: nothing was said." in window.transcript_view.toPlainText()
+    dispose(app, window)
+
+
+# ----- the corrective measures of the review pass ------------------------------------------------
+
+
+def test_removing_a_recording_keeps_the_shown_one_current(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"], media["fresh"]])
+    app.processEvents()
+    window.library_view.setCurrentIndex(window.library_model.index(1, 0))
+    app.processEvents()
+    assert window.current_row() == 1
+    window.remove_selected()
+    app.processEvents()
+    assert window.library_model.rowCount() == 1 and window.current_row() == 0
+    assert window.title_label.text() == "call.wav" and window.review_button.isEnabled()
+    assert window.current_document() is not None
+    dispose(app, window)
+
+
+def test_reloading_the_loaded_recording_keeps_the_readout(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    window.seek(7.0)
+    window.apply_settings()
+    assert window.player_bar.timeline.playhead() == pytest.approx(7.0)
+    assert window.player_bar.time_label.text().startswith("0:07.0")
+    window.nudge(5.0)
+    assert window.player_bar.timeline.playhead() == pytest.approx(12.0)
+    dispose(app, window)
+
+
+def test_copy_from_the_pane_and_space_on_a_button(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from PySide6.QtGui import QTextCursor
+
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    view = window.transcript_view
+    cursor = view.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+    view.setTextCursor(cursor)
+    QApplication.clipboard().setText("")
+    QTest.keyClick(view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(view, Qt.Key.Key_Control)
+    assert "good morning" in QApplication.clipboard().text()
+    # Space on a focused button presses it instead of starting playback.
+    presses: list[int] = []
+    window.clear_button.clicked.connect(lambda *_: presses.append(1))
+    QTest.keyClick(window.clear_button, Qt.Key.Key_Space)
+    assert presses == [1] and window.library_model.rowCount() == 0
+    dispose(app, window)
+
+
+def test_review_opens_once_and_follows_only_its_recording(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path, volume=0.3, rate=1.5)
+    window.add_paths([media["done"], media["fresh"]])
+    app.processEvents()
+    window.library_view.setCurrentIndex(window.library_model.index(0, 0))
+    app.processEvents()
+    window.open_review()
+    first = window._review_window
+    assert first is not None and first.volume == pytest.approx(0.3) and first.rate == pytest.approx(1.5)
+    window.open_review()
+    assert window._review_window is first                       # the same screen, brought to the front
+    # With another row current, a decision on the screen leaves that row alone.
+    window.library_view.setCurrentIndex(window.library_model.index(1, 0))
+    app.processEvents()
+    window.seek(12.0)
+    first.resolve_nothing()
+    app.processEvents()
+    assert window.current_row() == 1 and window.player_bar.timeline.playhead() == pytest.approx(12.0)
+    # Back on the reviewed recording the decision shows, and the button counts what is open.
+    window.library_view.setCurrentIndex(window.library_model.index(0, 0))
+    app.processEvents()
+    assert "Checked: nothing was said." in window.transcript_view.toPlainText()
+    assert window.review_button.text() == "Review (1 of 2 open)"
+    first.close()
+    app.processEvents()
+    assert window._review_window is None
+    dispose(app, window)
+
+
+def test_a_stale_session_is_set_aside_by_the_window(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    paths = output_paths(media["done"])
+    session = paths.review.with_name(f"{paths.review.stem}.session.json")
+    session.write_text(json.dumps({
+        "schema": "twinscribe.review-session.v1",
+        "marks": [{"start": 1.0, "end": 2.0, "status": "nothing", "note": ""},
+                  {"start": 5.0, "end": 6.0, "status": "text", "note": "typed for marks that no longer exist"}],
+    }), encoding="utf-8")
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    assert "Checked" not in window.transcript_view.toPlainText() and "Listener heard" not in window.transcript_view.toPlainText()
+    assert window.player_bar.timeline._resolved == [False, False]
+    assert window.review_button.text() == "Review (2)"
+    dispose(app, window)
+
+
+def test_transcribe_again_reruns_a_done_recording_and_sets_its_session_aside(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path, engines=make_engines())
+    window.add_paths([media["done"]])
+    app.processEvents()
+    assert window.again_button.isEnabled() and not window.transcribe_button.isEnabled()
+    assert "Transcribe again" in window.transcribe_button.toolTip()
+    paths = output_paths(media["done"])
+    session = paths.review.with_name(f"{paths.review.stem}.session.json")
+    doc = window.current_document()
+    session.write_text(json.dumps({
+        "schema": "twinscribe.review-session.v1",
+        "marks": [{"start": m["start"], "end": m["end"], "status": "nothing", "note": ""} for m in doc["marks"]],
+    }), encoding="utf-8")
+    assert window.transcribe_again(confirm=False) is True
+    assert not window.again_button.isEnabled()
+    wait_until(app, lambda: window.worker is None)
+    assert window.library_model.item(0).status == STATUS_DONE
+    assert not session.exists() and session.with_name("call.review.session.previous.json").is_file()
+    assert window.again_button.isEnabled() and "Checked" not in window.transcript_view.toPlainText()
+    dispose(app, window)
+
+
+def test_renaming_to_another_speakers_name_merges_the_two(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    from twinscribe.outputs.transcript_doc import load_document
+
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    assert window.chips_layout.count() == 3                    # two chips and the stretch
+    window.merge_speaker("speaker_01", "speaker_00")
+    doc = load_document(output_paths(media["done"]).transcript)
+    assert [s["label"] for s in doc["speakers"] if s["label"] is not None] == ["speaker_00"]
+    assert window.chips_layout.count() == 2 and "merged into" in window.statusBar().currentMessage()
+    assert "Speaker 2" not in output_paths(media["done"]).text.read_text(encoding="utf-8")
+    dispose(app, window)
+
+
+def test_chips_show_seconds_and_the_elided_label_keeps_its_text(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path)
+    window.add_paths([media["done"]])
+    app.processEvents()
+    chip = window.chips_layout.itemAt(0).widget()
+    assert "words, 0:" in chip.text()                            # the share in words and seconds
+    label = app_main.ElidedLabel("x" * 300)
+    label.resize(100, 20)
+    assert label.text() == "x" * 300 and label.toolTip() == "x" * 300
+    label.setText("short")
+    assert label.text() == "short" and label.toolTip() == ""
     dispose(app, window)

@@ -46,7 +46,9 @@ and `Portable_Layout.md`, so a reader who relied on the old rule finds the new o
   `download` while bytes of a file or an archive arrive (the archive under its own name),
   `extract` while members are written out of an archive, `done` once a file is in place and
   counted. The fraction is defined only while downloading.
-- `specs_for_level(name)` is the level's required models with its CTranslate2 detector and
+- `specs_for_level(name, backends=None)` is the level's required models with the detector the
+  installed libraries can run (the first of the level's candidates whose backend `backends`
+  marks usable; a machine without CTranslate2 fetches the ONNX export), by default its first choice, and
   the audio tagger, in catalogue order; `missing_for_levels(names, store)` is what the store
   lacks of them; `proposed_root(store, explicit)` is where a first fetch goes: the store in
   use when it holds anything or was named explicitly (the environment variable, the

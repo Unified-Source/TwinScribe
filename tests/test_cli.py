@@ -40,7 +40,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_check_reports_models_and_levels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv(MODELS_ENV, str(tmp_path / "models"))
-    assert cli.main(["check"]) == 0
+    assert cli.main(["check"]) == 1                      # no level can run here: a script can gate on it
     out = capsys.readouterr().out
     assert "ffmpeg:" in out and "models root:" in out and "quality levels:  none" in out
     assert "Machine:" in out and "plan (auto):" in out
@@ -164,3 +164,29 @@ def test_fetch_models_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert "fetching 6 model(s), about 2.4 GB" in out and "Attribution required" in out and "quality levels:" in out
     assert cli.main(["fetch-models", "--root", str(tmp_path / "store")]) == 0
     assert "nothing to fetch" in capsys.readouterr().out and len(calls) == 1
+
+
+def test_run_skips_transcribed_recordings_unless_asked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv(MODELS_ENV, str(tmp_path / "models"))
+    monkeypatch.setenv("TWINSCRIBE_HOME", str(tmp_path / "home"))
+    make_models(tmp_path / "models")
+    folder = tmp_path / "media"
+    folder.mkdir()
+    source = audio.synthetic_wav(folder / "a.wav", 1.0)
+    write_document(make_document("a.wav"), pipeline.output_paths(source).transcript)
+    assert cli.main(["run", str(folder)]) == 0
+    out = capsys.readouterr().out
+    assert "skipping 1 recording already transcribed" in out and "nothing to transcribe" in out
+    monkeypatch.setattr(pipeline, "default_engines", lambda: make_engines())
+    monkeypatch.setattr(pipeline, "current_plan", lambda *args, **kwargs: make_plan_for())
+    monkeypatch.setattr(cli, "current_plan", lambda *args, **kwargs: make_plan_for())
+    assert cli.main(["run", str(folder), "--again"]) == 0
+    assert "done   " in capsys.readouterr().out
+
+
+def test_threads_must_be_positive_and_an_unknown_model_key_is_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["run", "x", "--threads", "0"])
+    assert cli.build_parser().parse_args(["run", "x", "--again"]).again is True
+    assert cli.main(["fetch-models", "--only", "no-such-model", "--root", str(tmp_path / "store")]) == 2
+    assert "no catalogue entry" in capsys.readouterr().err

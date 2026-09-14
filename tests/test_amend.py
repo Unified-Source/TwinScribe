@@ -62,7 +62,8 @@ def test_apply_adds_listener_lines_and_records_resolutions() -> None:
     assert line["text"] == "yes I am here" and len(line["words"]) == 4
     # The gap sits between two different speakers, so the line carries no label.
     assert line["speaker"] is None
-    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here"}
+    # The resolution records the speaker the words were given: none, as an empty string.
+    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here", "speaker": ""}
     assert revised["marks"][1]["resolution"] == {"status": "nothing", "note": ""}
     assert revised["review_applied"]["text"] == 1 and revised["review_applied"]["nothing"] == 1
     assert revised["review_applied"]["listener_words"] == 4 and revised["review_applied"]["open"] == 0
@@ -151,3 +152,77 @@ def test_reopening_takes_the_listener_line_out_again() -> None:
     assert reopened["review_applied"]["text"] == 0 and reopened["review_applied"]["open"] == 1
     assert len(reopened["lines"]) == len(doc["lines"])
     assert reviewed_note(reopened) == "Reviewed by a listener: 1 span checked; 1 still open."
+
+
+def _one_speaker_document() -> dict:
+    """One engine line of speaker a, 0.5 to 8.0 s, with a one-second pause the review marks."""
+    times = [(0.5, 1.0, "we"), (1.0, 1.5, "went"), (2.0, 2.5, "down"), (3.0, 3.5, "there"),
+             (4.5, 5.0, "and"), (5.0, 5.5, "then"), (6.0, 6.5, "we"), (7.0, 8.0, "left")]
+    words = [{"s": s, "e": e, "w": w} for s, e, w in times]
+    return {
+        "schema": "twinscribe.transcript.v1",
+        "speakers": [{"label": "a", "name": "Agent", "words": 8, "seconds": 7.5}],
+        "lines": [{"start": 0.5, "end": 8.0, "speaker": "a", "text": " ".join(w["w"] for w in words), "words": words}],
+        "marks": [{"start": 3.1, "end": 4.9, "span_start": 3.5, "span_end": 4.5, "detector_words": 2}],
+    }
+
+
+def test_words_inside_a_line_split_it_and_take_its_speaker() -> None:
+    from twinscribe.amend import containing_line, split_line_at
+
+    doc = _one_speaker_document()
+    assert containing_line(doc["lines"], 3.5, 4.5) is doc["lines"][0]
+    assert infer_speaker(doc["lines"], 3.5, 4.5) == "a"
+    pieces = split_line_at(doc["lines"][0], 3.5, 4.5)
+    assert [p["text"] for p in pieces] == ["we went down there", "and then we left"]
+    assert pieces[0]["end"] == 3.5 and pieces[1]["start"] == 4.5
+    revised = apply_resolutions(doc, [{"status": "text", "note": "hold on"}])
+    lines = revised["lines"]
+    assert [line.get("src") for line in lines] == [None, SOURCE_LISTENER, None]
+    assert lines[1]["speaker"] == "a" and lines[1]["text"] == "hold on"
+    assert lines[0]["text"] == "we went down there" and lines[2]["text"] == "and then we left"
+    engine_words = [w["w"] for line in lines if line.get("src") != SOURCE_LISTENER for w in line["words"]]
+    assert engine_words == [w["w"] for w in doc["lines"][0]["words"]]
+    # The seconds of the pause are counted once, for the listener's line, not twice.
+    table = {s["label"]: s for s in revised["speakers"]}
+    assert table["a"]["words"] == 10 and table["a"]["seconds"] == pytest.approx((3.5 - 0.5) + (8.0 - 4.5) + 1.0)
+    assert revised["marks"][0]["resolution"] == {"status": "text", "note": "hold on", "speaker": "a"}
+    # Taking the listener's line out joins the pieces again, as they were.
+    cleared = strip_listener(revised)
+    assert len(cleared["lines"]) == 1 and cleared["lines"][0]["end"] == 8.0 and "split_from" not in cleared["lines"][0]
+    assert cleared["lines"][0]["text"] == doc["lines"][0]["text"]
+    again = apply_resolutions(revised, [{"status": "text", "note": "hold on"}])
+    assert [line.get("src") for line in again["lines"]] == [None, SOURCE_LISTENER, None]
+    reopened = apply_resolutions(revised, [{"status": "open", "note": ""}])
+    assert len(reopened["lines"]) == 1 and reopened["lines"][0]["text"] == doc["lines"][0]["text"]
+
+
+def test_a_chosen_speaker_is_kept_and_seeds_a_later_pass() -> None:
+    from twinscribe.amend import all_checked, listener_line_for, resolutions_from_document
+
+    doc = make_document("call.wav")
+    chosen = apply_resolutions(doc, [{"status": "text", "note": "yes", "speaker": "speaker_01"}, {"status": "open", "note": ""}])
+    line = listener_line_for(chosen, 0)
+    assert line is not None and line["speaker"] == "speaker_01" and line["text"] == "yes"
+    assert chosen["marks"][0]["resolution"] == {"status": "text", "note": "yes", "speaker": "speaker_01"}
+    assert listener_line_for(chosen, 1) is None
+    none = apply_resolutions(doc, [{"status": "text", "note": "yes", "speaker": ""}, {"status": "open", "note": ""}])
+    assert listener_line_for(none, 0)["speaker"] is None and none["marks"][0]["resolution"]["speaker"] == ""
+    # What the document records seeds a pass whose session file is gone.
+    assert resolutions_from_document(chosen) == [{"status": "text", "note": "yes", "speaker": "speaker_01"}, {"status": "open", "note": ""}]
+    assert resolutions_from_document(doc) == [{"status": "open", "note": ""}, {"status": "open", "note": ""}]
+    assert not all_checked(chosen) and not all_checked(doc)
+    assert all_checked(apply_resolutions(doc, [{"status": "nothing", "note": ""}, {"status": "text", "note": "yes"}]))
+
+
+def test_the_module_imports_first_without_a_cycle() -> None:
+    """The outputs package imports this module; importing this module first must work too."""
+    import subprocess
+    import sys
+
+    for first in ("twinscribe.amend", "twinscribe.app.verify", "twinscribe.app.transcript_view"):
+        completed = subprocess.run(
+            [sys.executable, "-c", f"import {first}; import twinscribe.outputs"],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert completed.returncode == 0, completed.stderr

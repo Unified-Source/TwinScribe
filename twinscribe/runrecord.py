@@ -12,9 +12,9 @@ import hashlib
 import json
 import os
 import platform
+import secrets
 import socket
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -241,15 +241,27 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f"value of type {type(value).__name__} is not JSON serialisable")
 
 
+def temporary_name(target: str) -> str:
+    """A temporary name beside `target`, unique to this process and moment.
+
+    One attempt is made to create it: a folder that refuses writes is then reported at once,
+    where the standard library's temporary files retry a refused name without end when the
+    folder reports itself writable.
+    """
+    folder = os.path.dirname(target)
+    return os.path.join(folder, f".{os.path.basename(target)}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+
+
 def write_json_atomic(doc: Any, path: str | os.PathLike[str]) -> None:
     """Write doc as UTF-8 JSON through a temporary file in the same folder, then rename.
 
     A reader never sees a partial file: either the previous content or the new content.
     """
-    target = os.fspath(path)
-    folder = os.path.dirname(os.path.abspath(target))
+    target = os.path.abspath(os.fspath(path))
+    folder = os.path.dirname(target)
     os.makedirs(folder, exist_ok=True)
-    descriptor, temp_path = tempfile.mkstemp(prefix=".", suffix=".json.tmp", dir=folder)
+    temp_path = temporary_name(target)
+    descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(doc, handle, indent=2, ensure_ascii=False, default=_json_default)

@@ -42,6 +42,8 @@ class AppSettings:
     library: list[str] = field(default_factory=list)
     splitter: list[int] = field(default_factory=list)
     window_size: list[int] = field(default_factory=list)
+    window_pos: list[int] = field(default_factory=list)
+    maximized: bool = False
 
     @property
     def output_dir_or_none(self) -> Path | None:

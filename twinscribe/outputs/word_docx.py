@@ -21,7 +21,7 @@ from xml.sax.saxutils import escape
 from twinscribe import __version__
 from twinscribe.labelling import UNLABELLED_NAME
 from twinscribe.outputs.plain_text import APPROXIMATE_NOTE, DRAFT_NOTICE, set_aside_note, transcript_entries
-from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, reviewed_note
+from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, all_checked, reviewed_note
 from twinscribe.outputs.transcript_doc import (
     approximate_word_times,
     clock,
@@ -240,7 +240,13 @@ def document_body(doc: Mapping[str, Any]) -> str:
         parts.append(_paragraph(_run(f"Speaker labelling did not complete: {doc['speaker_failure']}"), "Meta"))
     parts.append(_paragraph(_run("Speakers"), "Heading1"))
     parts.append(_speaker_table(doc))
-    if marks:
+    if marks and all_checked(doc):
+        span_noun = "span" if marks == 1 else "spans"
+        review_text = (
+            f"Review list: {marks} {span_noun} where speech may have been missing, every one checked by a "
+            f"listener; see {stem}.review.json. "
+        )
+    elif marks:
         share = 100.0 * float(review.get("fraction", 0.0))
         span_noun = "span" if marks == 1 else "spans"
         review_text = (

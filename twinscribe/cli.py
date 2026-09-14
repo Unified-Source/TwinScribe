@@ -49,7 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--models", type=Path, default=None, help="models root folder")
     run.add_argument("--out", type=Path, default=None, help="output folder (default: beside each recording)")
     run.add_argument("--quality", default=DEFAULT_PROFILE, choices=[p.name for p in PROFILES], help="quality level")
-    run.add_argument("--threads", type=int, default=None, help="threads per engine (default: min of 8 and the cores)")
+    run.add_argument("--threads", type=_positive_int, default=None, help="threads per engine (default: min of 8 and the cores)")
+    run.add_argument(
+        "--again", action="store_true",
+        help="transcribe recordings whose transcript document already exists; by default they are skipped, "
+             "so a transcript a listener has verified is not written over",
+    )
     run.add_argument("--device", default="auto", choices=list(PREFERENCES),
                      help="auto uses a CUDA device when one is usable; cpu keeps every engine on the processor")
     run.add_argument("--author", default="", help="author written into the Word document properties")
@@ -85,11 +90,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def _module_present(name: str) -> bool:
     try:
         return importlib.util.find_spec(name) is not None
     except (ImportError, ValueError):
         return False
+
+
+def _installed_backends() -> dict[str, bool]:
+    libraries = probe_libraries()
+    return {BACKEND_CT2: libraries.whisper_ct2, BACKEND_ONNX: libraries.sherpa_onnx}
 
 
 def _span(seconds: float) -> str:
@@ -176,7 +193,8 @@ def command_check(args: argparse.Namespace) -> int:
     print("plan (" + args.device + "):")
     for line in current_plan(args.device).describe():
         print("  " + line)
-    status = 0
+    # The status lets a script gate on the check: 1 when nothing could transcribe here.
+    status = 0 if levels else 1
     if args.verify:
         checks = verify_store(models.root)
         for check in checks:
@@ -195,6 +213,17 @@ def command_run(args: argparse.Namespace) -> int:
     if args.speakers is not None and args.speakers < 1:
         print("--speakers must be at least 1 when given", file=sys.stderr)
         return 2
+    if not args.again:
+        # A transcript already on disk may carry a listener's decisions; it is written over
+        # only when asked, as the window does.
+        done = [source for source in sources if output_paths(source, args.out).transcript.is_file()]
+        if done:
+            noun = "recording" if len(done) == 1 else "recordings"
+            print(f"skipping {len(done)} {noun} already transcribed (give --again to transcribe them again)")
+            sources = [source for source in sources if source not in done]
+        if not sources:
+            print("nothing to transcribe")
+            return 0
     models = find_models(args.models)
     plan = current_plan(args.device, args.threads)
     try:
@@ -250,12 +279,17 @@ def command_fetch_models(args: argparse.Namespace) -> int:
 
     models = find_models(args.root)
     root = Path(args.root) if args.root is not None else proposed_root(models)
+    backends = _installed_backends()
     if args.only:
         from twinscribe.models import spec_for
 
-        specs = [spec_for(key) for key in args.only]
+        try:
+            specs = [spec_for(key) for key in args.only]
+        except KeyError as exc:
+            print(f"no catalogue entry {exc}; the keys are those `check` lists", file=sys.stderr)
+            return 2
     else:
-        specs = missing_for_levels(args.level, find_models(root))
+        specs = missing_for_levels(args.level, find_models(root), backends)
     if not specs:
         print(f"nothing to fetch: {', '.join(args.level)} complete under {root}")
         return 0
@@ -281,7 +315,7 @@ def command_fetch_models(args: argparse.Namespace) -> int:
     print()
     store = find_models(root)
     print(store.describe())
-    print("quality levels:  " + (", ".join(p.name for p in available_profiles(store)) or "none"))
+    print("quality levels:  " + (", ".join(p.name for p in available_profiles(store, backends)) or "none"))
     print("Attribution required by the licences of the models fetched:")
     for spec in specs:
         print(f"  {spec.title}: {spec.credit} ({spec.licence})")

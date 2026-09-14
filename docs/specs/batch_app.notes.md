@@ -310,3 +310,35 @@ recall and the Jaccard error rate can be scored.
   success colour on the timeline, and the marker of a checked mark points at the listener's
   line below it rather than repeating the words. The screen now plays to the device chosen
   in the player bar; it had kept playing to the system default after the box was added.
+
+## The application review
+
+- A review of the application against a person's use of it found, and this change answers:
+  two recordings of one name sent to one output folder overwrote each other's outputs and
+  each was shown as done on the other's document (data loss, silent); Escape in the models
+  dialog during a fetch aborted the whole application (the thread's parent was deleted under
+  it); the window's key filter swallowed Space on its buttons, so they could not be pressed
+  from the keyboard, and the pane refused Ctrl+C although its own menu offered it; Review
+  pressed twice opened two screens writing one session file; a decision on the screen laid out
+  whatever row was current, throwing a running job card back to its start; a reload of the
+  recording in the player reset the readout to zero; a session from an earlier transcription
+  was shown as checked when its mark count happened to match; adding a folder of four
+  hundred recordings took nine seconds and froze the window (the lookup resolved every path
+  per recording, and the sibling rule listed the folder per recording); a removed recording
+  left the window without a current row; a long name forced the window to 2,700 pixels; a
+  transcribed recording could not be transcribed again from the window; a speaker split in
+  two by the clustering could not be merged; a batch record that could not be written marked
+  every finished recording failed; an output folder that refused writes hung the run in the
+  temporary-file loop of the standard library; a missing decoder failed every recording one
+  by one with advice the window could not follow.
+- Observed while fixing: on this platform a folder's modification stamp, as the interpreter
+  reports it, does not change when a file is added to the folder, so a cache keyed on it
+  served stale listings; the cache is scoped to a block instead. The standard library's
+  temporary-file maker retries a refused name without end while the folder reports itself
+  writable, which is what made a read-only output folder hang; one attempt at one name
+  replaces it.
+- Not done: Stop still cannot interrupt a step that reports nothing (a model load, the speaker
+  stage), and closing the window then waits fifteen seconds; a decoder field in Settings; a
+  merge action of its own on the chips (renaming to the other name is the way); adding a
+  recording from History with its outputs elsewhere than the current setting looks for; the
+  first-run fetch does not check free disk space.

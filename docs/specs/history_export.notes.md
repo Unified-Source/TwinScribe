@@ -40,3 +40,7 @@ was observed.
 - The history does not record failed runs; the batch records do, and a failure is not a
   transcription. It does not record the outputs' digests either; the run record beside the
   outputs carries the input's digest, which is the one that matters for provenance.
+- The "When" column showed UTC as if it were local time, hours off the machine's clock; it
+  is converted now. The review session travels with an exported review list; the decisions
+  are also recorded in the transcript document, from which the verification screen seeds a
+  pass whose session file is gone.

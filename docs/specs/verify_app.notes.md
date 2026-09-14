@@ -98,3 +98,28 @@ on reopening.
   resolution's status say so.
 - The A key and the Apply button are gone; `apply_to_transcript()` remains for a caller that
   wants the document written again from the resolutions held.
+
+## The speaker of the words, and decisions that outlive the session file
+
+- Observed on the fixture document with the first form: a transcript carrying two listener
+  lines and no session file opened as `0 of 2 done`, and one N removed both lines from the
+  document, the text, the Word document and the subtitles, with the status reporting a
+  success. With decisions seeded from the document the same pass opens at `1 of 2 done` on the
+  first open mark and the lines stay.
+- The "Spoken by" box is hidden when no transcript document is beside the review set (a
+  review set opened on its own has no speakers to offer). The inferred choice is the default
+  because it is right whenever the same voice is on both sides, which is every gap inside a
+  line; the box exists for the turns.
+- A document open in Word blocks the rename of the temporary file under it. The document
+  write and the three outputs are separate steps now, so the transcript and the text and
+  subtitle files are written, the status names the Word document and the likely cause, and
+  `transcript_changed` is still emitted; the file is written again on the next decision, or
+  by Export.
+- Keys: a decision from the words box moves the cursor back to the list, since with the
+  cursor in the box N, J, K and Enter would type letters and newlines into it; T brings it
+  back. The automatic pause at a span end is flagged so the pause handler leaves the status
+  line alone; a pause asked for with Space is announced as before.
+- The header shows the recording's length as m:ss rather than as a decimal of minutes.
+- The offscreen tests seed a pass from the document, name a stale session, choose a speaker
+  and read it back from the session file and the document, and block the Word document with a
+  folder of the same name to exercise the partial write.

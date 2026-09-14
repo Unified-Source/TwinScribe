@@ -21,6 +21,7 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QKeyEvent,
     QMouseEvent,
     QTextBlockFormat,
     QTextCharFormat,
@@ -317,6 +318,21 @@ class TranscriptView(QTextEdit):
         target = int(rect.top() - viewport_height * 0.38)
         bar.setValue(max(bar.minimum(), min(bar.maximum(), target)))
 
+    def scroll_value(self) -> int:
+        """The vertical scroll position, to be put back after the pane is laid out again."""
+        return self.verticalScrollBar().value()
+
+    def set_scroll_value(self, value: int) -> None:
+        bar = self.verticalScrollBar()
+        bar.setValue(max(bar.minimum(), min(bar.maximum(), int(value))))
+
+    def show_mark(self, index: int) -> None:
+        """Bring the gap marker of a mark, and the listener's line under it, into view."""
+        for block_number, (kind, mark_index) in self._block_info.items():
+            if kind == KIND_MARK and mark_index == index:
+                self._scroll_to_block(block_number)
+                return
+
     # ----- mouse -------------------------------------------------------------------------
 
     def _info_at(self, event: QMouseEvent) -> tuple[str, int, int] | None:
@@ -361,7 +377,12 @@ class TranscriptView(QTextEdit):
         super().wheelEvent(event)
 
     def event(self, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.KeyPress:
-            # Keys belong to the window (play, pause, nudge); the pane only scrolls with the mouse.
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            # Plain keys belong to the window (play, pause, nudge, the marks). Copy and select
+            # all, which the pane's own menu offers, and the page keys stay the pane's.
+            modified = bool(event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier))
+            paging = event.key() in (Qt.Key.Key_PageUp, Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End)
+            if modified or paging:
+                return super().event(event)
             return False
         return super().event(event)

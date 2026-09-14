@@ -67,3 +67,16 @@ Companion to `first_run_models.md`. Records what was built, what was checked, an
   again from the start. The largest single file is about 1.6 GB.
 - The offer on first start is not tested through `main()`, which runs the event loop; the
   condition it uses (`needs_models`) and the dialog it opens are tested through the window.
+
+## The detector the machine can run, and the dialog under a fetch
+
+- The dialog and the command fetched the level's CTranslate2 detector whatever was installed,
+  so a machine without faster-whisper (Windows on ARM, or a source install without the
+  wheel) downloaded 1.6 GB it could never run and stayed without a level while the dialog
+  reported nothing to fetch. Both now pass the installed backends and take the first
+  candidate that can run; the command prints the levels for the installed backends too.
+- Escape, or the dialog's close button, during a fetch deleted the dialog with its child
+  thread still running and aborted the whole window. The thread has no parent now and frees
+  itself when finished; Escape and Later cancel the transfer and the dialog closes once it has
+  stopped, with the status saying so; the close button does the same.
+- An unknown key given to `--only` is named instead of ending in a traceback.

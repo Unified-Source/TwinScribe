@@ -5,6 +5,7 @@ opens, its outputs are exported again, or the entry is dropped.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Signal
@@ -41,10 +42,15 @@ def _level_title(name: str) -> str:
 
 
 def _when(stamp: str) -> str:
-    """2026-09-09 10:23 from an ISO stamp, or the stamp as given."""
-    if len(stamp) >= 16 and stamp[10] == "T":
-        return stamp[:10] + " " + stamp[11:16]
-    return stamp
+    """2026-09-09 10:23 in the machine's own time zone from an ISO stamp (the records carry
+    UTC), or the stamp as given when it cannot be read."""
+    try:
+        moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return stamp
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 class HistoryDialog(QDialog):

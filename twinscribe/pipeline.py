@@ -9,10 +9,14 @@ here touches the network; the engines load from local folders only.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -130,21 +134,50 @@ class OutputPaths:
         }
 
 
+# Within a folder_cache() block, the media files of each folder are listed once for the
+# sibling rule: a library of hundreds of recordings would otherwise list the folder once per
+# recording, which made adding a folder quadratic. Outside a block nothing is cached, since
+# a folder's modification stamp does not change on every platform when a file is added. The
+# cache is per thread, so a batch running on its own thread never shares it with the window.
+_folder_cache_holder = threading.local()
+
+
+@contextmanager
+def folder_cache() -> Iterator[None]:
+    """Cache folder listings for the sibling rule within the block, for the calling thread."""
+    outer = getattr(_folder_cache_holder, "cache", None)
+    if outer is None:
+        _folder_cache_holder.cache = {}
+    try:
+        yield
+    finally:
+        if outer is None:
+            _folder_cache_holder.cache = None
+
+
+def _media_names(folder: Path) -> list[tuple[str, str]]:
+    cache: dict[str, list[tuple[str, str]]] | None = getattr(_folder_cache_holder, "cache", None)
+    key = os.path.normcase(str(folder))
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        entries = [
+            (os.path.normcase(entry.name), os.path.normcase(entry.stem))
+            for entry in folder.iterdir()
+            if is_media(entry) and entry.is_file()
+        ]
+    except OSError:
+        entries = []
+    if cache is not None:
+        cache[key] = entries
+    return entries
+
+
 def has_sibling_with_same_stem(source: Path) -> bool:
     """True when another recording with the same stem sits beside `source` (call.mp3 by call.wav)."""
-    try:
-        entries = list(source.parent.iterdir())
-    except OSError:
-        return False
     stem = os.path.normcase(source.stem)
     name = os.path.normcase(source.name)
-    return any(
-        os.path.normcase(entry.name) != name
-        and os.path.normcase(entry.stem) == stem
-        and is_media(entry)
-        and entry.is_file()
-        for entry in entries
-    )
+    return any(other_name != name and other_stem == stem for other_name, other_stem in _media_names(source.parent))
 
 
 def output_base(source: str | os.PathLike[str]) -> str:
@@ -154,11 +187,60 @@ def output_base(source: str | os.PathLike[str]) -> str:
     return src.name if has_sibling_with_same_stem(src) else src.stem
 
 
+def recorded_source(run_path: Path) -> str | None:
+    """The input path a run record names, or None when there is no readable record."""
+    try:
+        with open(run_path, "r", encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    recorded = doc.get("input_path")
+    return str(recorded) if recorded else None
+
+
+def same_recording(recorded: str, source: Path) -> bool:
+    """Whether a recorded input path names `source`: by the whole path when both are absolute,
+    else by the last two components, so a record written from a relative path still matches
+    its own file."""
+    given = Path(recorded)
+    if given.is_absolute() and source.is_absolute():
+        return os.path.normcase(os.path.abspath(str(given))) == os.path.normcase(os.path.abspath(str(source)))
+    tail = min(2, len(given.parts), len(source.parts))
+    return [os.path.normcase(p) for p in given.parts[-tail:]] == [os.path.normcase(p) for p in source.parts[-tail:]]
+
+
+def claimed_by_another(folder: Path, base: str, source: Path) -> bool:
+    """True when outputs named `base` in `folder` were written for a different recording: the
+    run record beside them names its input."""
+    recorded = recorded_source(folder / f"{base}.run.json")
+    return recorded is not None and not same_recording(recorded, source)
+
+
 def output_paths(source: str | os.PathLike[str], out_dir: str | os.PathLike[str] | None = None) -> OutputPaths:
-    """Output paths for a recording: beside it, or in out_dir when given, named by `output_base`."""
+    """Output paths for a recording: beside it, or in out_dir when given, named by
+    `output_base`.
+
+    In one folder, a name already taken by another recording's outputs (day1/call.wav and
+    day2/call.wav sent to the same folder) yields to the parent folder's name in front
+    (day2-call), then to a short digest of the path, so that two recordings never overwrite
+    each other and a document about one is never shown as the other's. The rule reads the
+    run record beside the outputs, so every caller resolves the same paths.
+    """
     src = Path(source)
     folder = Path(out_dir) if out_dir is not None else src.parent
     stem = output_base(src)
+    if out_dir is not None and claimed_by_another(folder, stem, src):
+        candidates: list[str] = []
+        if src.parent.name:
+            candidates.append(f"{src.parent.name}-{stem}")
+        digest = hashlib.sha1(os.path.normcase(os.path.abspath(str(src))).encode("utf-8")).hexdigest()[:8]
+        candidates.append(f"{stem}-{digest}")
+        for candidate in candidates:
+            if not claimed_by_another(folder, candidate, src):
+                stem = candidate
+                break
     return OutputPaths(
         transcript=folder / f"{stem}.transcript.json",
         text=folder / f"{stem}.txt",
@@ -167,6 +249,24 @@ def output_paths(source: str | os.PathLike[str], out_dir: str | os.PathLike[str]
         review=folder / f"{stem}.review.json",
         run=folder / f"{stem}.run.json",
     )
+
+
+def writable_folder(folder: str | os.PathLike[str]) -> str | None:
+    """None when a file can be made in the folder (created when absent), else the reason.
+
+    The probe makes one attempt: a folder that refuses writes is reported before the engines
+    run, rather than found out after them.
+    """
+    target = Path(folder)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / f".twinscribe-write-probe-{os.getpid()}"
+        descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+        os.close(descriptor)
+        os.unlink(probe)
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 def is_media(path: str | os.PathLike[str]) -> bool:
@@ -756,6 +856,8 @@ class BatchResult:
 
     outcomes: list[Outcome] = field(default_factory=list)
     record_path: Path | None = None
+    # The reason the batch record could not be written, when it could not; the outcomes stand.
+    record_error: str | None = None
 
     @property
     def failures(self) -> list[Outcome]:
@@ -865,22 +967,29 @@ def run_batch(
             )
     folder = Path(record_dir) if record_dir is not None else runs_dir()
     stamp = started_utc.replace(":", "").replace("-", "").replace("+0000", "Z")
-    result.record_path = folder / f"batch_{stamp}.json"
-    write_json_atomic(
-        {
-            "schema": BATCH_SCHEMA,
-            "version": __version__,
-            "started_utc": started_utc,
-            "ended_utc": utc_now(),
-            "profile": profile.name,
-            "models_root": str(models.root),
-            "speakers": speakers,
-            "plan": batch_plan.to_dict(),
-            "files": [o.to_dict() for o in result.outcomes],
-            "failures": [
-                {"path": str(o.source), "error_class": o.error_class, "message": o.error} for o in result.failures
-            ],
-        },
-        result.record_path,
-    )
+    record_path = folder / f"batch_{stamp}.json"
+    try:
+        write_json_atomic(
+            {
+                "schema": BATCH_SCHEMA,
+                "version": __version__,
+                "started_utc": started_utc,
+                "ended_utc": utc_now(),
+                "profile": profile.name,
+                "models_root": str(models.root),
+                "speakers": speakers,
+                "plan": batch_plan.to_dict(),
+                "files": [o.to_dict() for o in result.outcomes],
+                "failures": [
+                    {"path": str(o.source), "error_class": o.error_class, "message": o.error} for o in result.failures
+                ],
+            },
+            record_path,
+        )
+    except OSError as exc:
+        # The recordings' own outputs and run records are on disk; a home that refuses the
+        # batch record must not turn them into failures.
+        result.record_error = f"{record_path}: {exc}"
+    else:
+        result.record_path = record_path
     return result

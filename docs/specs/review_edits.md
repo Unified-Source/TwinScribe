@@ -20,8 +20,13 @@ output must show those words as the listener's, never as the engine's.
 
 - a mark resolved with text gains a line of its own whose words are the typed words spread
   evenly across the publisher's silent span, each word carrying `"src": "listener"`, the line
-  too; the line's speaker is the one speaking both immediately before and immediately after
-  the gap, else none;
+  too; when the gap falls inside an engine line (a pause between the review threshold and the
+  line break), that line is split around it, every word as it was, so the listener's words
+  read where they were said and the subtitle cues do not overlap; the line's speaker is the
+  one the resolution names (`speaker`: a label, or an empty string for none), else the speaker
+  of the line the gap falls inside, else the one speaking both immediately before and
+  immediately after the gap, else none; the speaker given is recorded in the mark's
+  resolution;
 - a mark resolved as nothing said gains `"resolution": {"status": "nothing"}`; a mark with text
   gains the text as its resolution; open marks gain nothing;
 - lines are kept in time order and the speaker summary is counted again from the lines, so

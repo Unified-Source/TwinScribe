@@ -196,3 +196,31 @@ def test_window_without_a_detector_library_does_not_offer(app: QApplication, iso
     window.close()
     window.deleteLater()
     app.processEvents()
+
+
+def test_escape_during_a_fetch_cancels_and_closes_only_when_stopped(app: QApplication, isolated: Path) -> None:
+    root = isolated / "store"
+    dialog = ModelsDialog(find_models(root), fetch=waiting_fetch)
+    dialog.show()
+    app.processEvents()
+    assert dialog.start() is not None
+    wait_until(lambda: dialog.running())
+    dialog.reject()                                   # Escape and the Later button both come here
+    assert dialog.isVisible() and dialog.running()
+    assert "Stopping" in dialog.status.text() and "closes when the transfer has stopped" in dialog.status.text()
+    wait_until(lambda: not dialog.running())
+    wait_until(lambda: not dialog.isVisible())         # closed by itself once the transfer stopped
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_the_dialog_fetches_what_the_installed_libraries_can_run(app: QApplication, isolated: Path) -> None:
+    from twinscribe.hardware import BACKEND_CT2, BACKEND_ONNX
+    from twinscribe.profiles import profile_for
+
+    root = isolated / "store"
+    without_ct2 = ModelsDialog(find_models(root), backends={BACKEND_CT2: False, BACKEND_ONNX: True})
+    keys = [spec.key for spec in without_ct2.specs]
+    standard = profile_for("standard")
+    assert standard.detectors[1] in keys and standard.detectors[0] not in keys
+    without_ct2.close()

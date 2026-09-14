@@ -205,3 +205,23 @@ def test_proposed_root_prefers_the_store_then_the_executable_then_the_home(tmp_p
     assert proposed_root(unwritable) == (tmp_path / "dist" / "models").resolve()
     monkeypatch.setenv("TWINSCRIBE_MODELS", str(tmp_path / "named"))
     assert proposed_root(find_models(None)) == tmp_path / "named"
+
+
+def test_the_level_plan_follows_the_installed_detector_library() -> None:
+    from twinscribe.hardware import BACKEND_CT2, BACKEND_ONNX
+    from twinscribe.profiles import profile_for
+
+    standard = profile_for("standard")
+    ct2_key, onnx_key = standard.detectors[0], standard.detectors[1]
+    default = {spec.key for spec in specs_for_level("standard")}
+    assert ct2_key in default and onnx_key not in default
+    without_ct2 = {spec.key for spec in specs_for_level("standard", {BACKEND_CT2: False, BACKEND_ONNX: True})}
+    assert onnx_key in without_ct2 and ct2_key not in without_ct2
+    both = {spec.key for spec in specs_for_level("standard", {BACKEND_CT2: True, BACKEND_ONNX: True})}
+    assert ct2_key in both and onnx_key not in both                # the level's own first choice
+    neither = {spec.key for spec in specs_for_level("standard", {BACKEND_CT2: False, BACKEND_ONNX: False})}
+    assert ct2_key in neither                                      # nothing usable: the first choice stands
+    # The missing list follows the same choice, so a machine without CTranslate2 fetches what it can run.
+    empty = find_models(Path("D:/no-such-store") if sys.platform == "win32" else Path("/no-such-store"))
+    keys = [spec.key for spec in missing_for_levels(["standard"], empty, {BACKEND_CT2: False, BACKEND_ONNX: True})]
+    assert onnx_key in keys and ct2_key not in keys

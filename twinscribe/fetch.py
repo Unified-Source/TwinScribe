@@ -17,7 +17,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,7 @@ from twinscribe.models import (
     write_lock,
 )
 from twinscribe.paths import app_home
-from twinscribe.profiles import PROFILES, profile_for
+from twinscribe.profiles import PROFILES, backend_of, profile_for
 
 CHUNK = 1 << 20
 USER_AGENT = "twinscribe-fetch/0.1"
@@ -265,19 +265,31 @@ def fetch_specs(
     return lock
 
 
-def specs_for_level(name: str) -> tuple[ModelSpec, ...]:
-    """The models a quality level needs with its CTranslate2 detector, plus the audio tagger
-    (small, optional, used by the scene pass when present), in catalogue order."""
+def specs_for_level(name: str, backends: Mapping[str, bool] | None = None) -> tuple[ModelSpec, ...]:
+    """The models a quality level needs, with the detector the installed libraries can run
+    (the first of the level's candidates whose backend `backends` marks usable; the level's
+    own first choice when nothing is known), plus the audio tagger (small, optional, used by
+    the scene pass when present), in catalogue order.
+
+    A machine without CTranslate2 (no faster-whisper wheel) would otherwise fetch the
+    CTranslate2 conversion, which it can never run, and stay without a level.
+    """
     profile = profile_for(name)
-    keys = set(profile.required_keys) | {profile.detector, KEY_AUDIO_TAGGER}
-    return tuple(spec for spec in CATALOGUE if spec.key in keys and (spec.backend in ("", BACKEND_CT2)))
+    detector = profile.detector
+    if backends is not None:
+        detector = next((key for key in profile.detectors if backends.get(backend_of(key), False)), profile.detector)
+    keys = set(profile.required_keys) | {detector, KEY_AUDIO_TAGGER}
+    return tuple(spec for spec in CATALOGUE if spec.key in keys)
 
 
-def missing_for_levels(names: Iterable[str], models: ModelSet) -> list[ModelSpec]:
-    """The catalogue entries the store lacks for the given levels, in catalogue order."""
+def missing_for_levels(
+    names: Iterable[str], models: ModelSet, backends: Mapping[str, bool] | None = None
+) -> list[ModelSpec]:
+    """The catalogue entries the store lacks for the given levels, in catalogue order, for the
+    detector backend the installed libraries offer."""
     keys: set[str] = set()
     for name in names:
-        keys.update(spec.key for spec in specs_for_level(name))
+        keys.update(spec.key for spec in specs_for_level(name, backends))
     return [spec for spec in CATALOGUE if spec.key in keys and not models.has(spec.key)]
 
 

@@ -320,3 +320,58 @@ def test_listener_lines_render_as_the_listeners() -> None:
     assert '<w:i/>' in xml.split("yes I am here")[0].rsplit("<w:r>", 1)[-1]
     # A document without an applied review renders as before.
     assert "heard on review" not in render_text(doc) and "Reviewed by" not in document_xml(doc)
+
+
+# ----- outputs written each on its own, the listener's cues, the header when all is checked ---
+
+
+def test_an_output_that_cannot_be_written_does_not_stop_the_others(tmp_path: Path) -> None:
+    from twinscribe.outputs import OutputsNotWritten, describe_failures, render_outputs
+
+    doc = make_document("call.wav")
+    blocked = tmp_path / "call.docx"
+    blocked.mkdir()                                     # a folder where the document must go
+    failures = render_outputs(doc, tmp_path / "call.txt", blocked, tmp_path / "call.srt")
+    assert list(failures) == ["docx"] and "call.docx" in failures["docx"]
+    assert (tmp_path / "call.txt").is_file() and (tmp_path / "call.srt").is_file()
+    with pytest.raises(OutputsNotWritten) as excinfo:
+        render_all(doc, tmp_path / "call.txt", blocked, tmp_path / "call.srt")
+    assert excinfo.value.written == ["text", "subtitles"] and list(excinfo.value.failures) == ["docx"]
+    assert str(excinfo.value).startswith("could not write the Word document (call.docx")
+    assert describe_failures({"docx": "x", "subtitles": "y"}) == "could not write the Word document (x); the subtitle file (y)"
+    assert render_outputs(doc, tmp_path / "ok.txt", tmp_path / "ok.docx", tmp_path / "ok.srt") == {}
+
+
+def test_listener_cues_carry_the_mark_and_the_header_says_when_every_mark_is_checked() -> None:
+    from twinscribe.amend import apply_resolutions
+    from twinscribe.labelling import UNLABELLED_NAME
+
+    doc = make_document("call.wav")
+    revised = apply_resolutions(doc, [{"status": "text", "note": "yes I am here"}, {"status": "nothing", "note": ""}])
+    cues = build_cues(revised)
+    # The cue is longer than one row, so it is split; the prefix carries the mark either way.
+    assert any(cue.text.replace("\n", " ").startswith(f"{UNLABELLED_NAME} (heard on review): yes I am here") for cue in cues)
+    header = header_lines(revised)
+    assert any(line.startswith("Review list: 2 spans where speech may have been missing, every one checked by a listener") for line in header)
+    assert "every one checked by a listener" in document_xml(revised)
+    partial = apply_resolutions(doc, [{"status": "text", "note": "yes"}, {"status": "open", "note": ""}])
+    assert any("where speech may be missing, " in line for line in header_lines(partial))
+
+
+def test_merge_speakers_relabels_and_recounts() -> None:
+    from twinscribe.outputs.transcript_doc import merge_speakers
+
+    doc = make_document("call.wav")
+    before = {s["label"]: s for s in doc["speakers"] if s["label"] is not None}
+    assert set(before) == {"speaker_00", "speaker_01"}
+    merged = merge_speakers(doc, "speaker_01", "speaker_00")
+    assert [s["label"] for s in merged["speakers"] if s["label"] is not None] == ["speaker_00"]
+    kept = merged["speakers"][0]
+    assert kept["words"] == before["speaker_00"]["words"] + before["speaker_01"]["words"]
+    assert kept["seconds"] == pytest.approx(before["speaker_00"]["seconds"] + before["speaker_01"]["seconds"])
+    assert all(line["speaker"] == "speaker_00" for line in merged["lines"])
+    assert [line["speaker"] for line in doc["lines"]].count("speaker_01") > 0      # the original is untouched
+    with pytest.raises(KeyError):
+        merge_speakers(doc, "nobody", "speaker_00")
+    with pytest.raises(ValueError):
+        merge_speakers(doc, "speaker_00", "speaker_00")

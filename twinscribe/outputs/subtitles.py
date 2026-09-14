@@ -111,6 +111,9 @@ def build_cues(
     for line in doc.get("lines", []):
         label = line.get("speaker")
         name = names.get(label, label) if label is not None else UNLABELLED_NAME
+        if line.get("src") == "listener":
+            # A listener's words are marked in every output; a cue carries the mark in its prefix.
+            name = f"{name} (heard on review)"
         prefix = f"{name}: "
         words = [w for w in line.get("words", []) if str(w.get("w", "")).strip()]
         if not words:

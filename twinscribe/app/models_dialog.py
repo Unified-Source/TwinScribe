@@ -5,7 +5,7 @@ with progress. The one place the window reaches the network, and only on that bu
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -96,12 +96,15 @@ class ModelsDialog(QDialog):
         parent: QWidget | None = None,
         fetch: FetchFn = fetch_specs,
         explicit: bool = False,
+        backends: Mapping[str, bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Models")
         self.setMinimumWidth(720)
         self._fetch = fetch
         self._thread: FetchThread | None = None
+        self._close_when_stopped = False
+        self.backends = dict(backends) if backends is not None else None
         self.models = models if models is not None else find_models(None)
         self.root = proposed_root(self.models, explicit)
         self.specs: list[ModelSpec] = []
@@ -187,7 +190,7 @@ class ModelsDialog(QDialog):
         """Recompute what the chosen levels lack under the folder and show it."""
         root = Path(self.folder_edit.text().strip() or str(self.root))
         store = find_models(root)
-        self.specs = missing_for_levels(self.chosen_levels(), store)
+        self.specs = missing_for_levels(self.chosen_levels(), store, self.backends)
         self.table.setRowCount(len(self.specs))
         for row, spec in enumerate(self.specs):
             values = (spec.title, spec.role, _size_text(spec.size_mb),
@@ -219,7 +222,10 @@ class ModelsDialog(QDialog):
         if not self.specs or self._thread is not None:
             return None
         self.root = Path(self.folder_edit.text().strip() or str(self.root))
-        self._thread = FetchThread(self.specs, self.root, self._fetch, self)
+        # The thread has no parent: a dialog deleted while its child thread ran would abort
+        # the process. It frees itself once it has finished.
+        self._thread = FetchThread(self.specs, self.root, self._fetch)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.progress.connect(self._on_progress)
         self._thread.finished_ok.connect(self._on_finished)
         self._thread.failed.connect(self._on_failed)
@@ -275,6 +281,9 @@ class ModelsDialog(QDialog):
         self.progress.setRange(0, 1000)
         self.status.setText(text)
         self.refresh()
+        if self._close_when_stopped:
+            self._close_when_stopped = False
+            self.close()
 
     def _on_finished(self) -> None:
         self.progress.setValue(1000)
@@ -290,8 +299,21 @@ class ModelsDialog(QDialog):
         self._done("Cancelled; what was fetched is kept, and Download continues from there.")
         self.fetched.emit(self.root)
 
+    def reject(self) -> None:
+        """Escape and Later: during a fetch, cancel it and stay open until it has stopped, so
+        the dialog is never torn down under a running transfer; otherwise close."""
+        if self._thread is not None:
+            self._close_when_stopped = True
+            self.cancel()
+            self.status.setText("Stopping after the current chunk; the dialog closes when the transfer has stopped.")
+            return
+        super().reject()
+
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt virtual)
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.cancel()
-            self._thread.wait(15000)
+        if self._thread is not None:
+            self._close_when_stopped = True
+            self.cancel()
+            self.status.setText("Stopping after the current chunk; the dialog closes when the transfer has stopped.")
+            event.ignore()
+            return
         super().closeEvent(event)

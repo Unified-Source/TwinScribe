@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, reviewed_note
+from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER, all_checked, reviewed_note
 from twinscribe.outputs.transcript_doc import (
     approximate_word_times,
     clock,
@@ -99,7 +99,13 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
     review = doc.get("review", {})
     marks = int(review.get("marks", 0))
     stem = str(source.get("outputs") or str(source.get("name", "")).rsplit(".", 1)[0])
-    if marks:
+    if marks and all_checked(doc):
+        span_noun = "span" if marks == 1 else "spans"
+        lines.append(
+            f"Review list: {marks} {span_noun} where speech may have been missing, every one checked by a "
+            f"listener; see {stem}.review.json."
+        )
+    elif marks:
         span_noun = "span" if marks == 1 else "spans"
         share = 100.0 * float(review.get("fraction", 0.0))
         lines.append(

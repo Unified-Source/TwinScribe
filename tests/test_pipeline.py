@@ -543,3 +543,104 @@ def test_laptop_level_checks_the_gaps_after_the_publisher(recording: Path, model
     standard: dict[str, dict] = {}
     process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=standard))
     assert standard["detector"].get("clips") is None
+
+
+# ----- one output folder, the folder cache, writable folders, the batch record ------------------
+
+
+def test_one_folder_outputs_never_collide_across_folders(tmp_path: Path) -> None:
+    from twinscribe.runrecord import write_json_atomic
+
+    out = tmp_path / "out"
+    day1 = tmp_path / "day1" / "recording.wav"
+    day2 = tmp_path / "day2" / "recording.wav"
+    for path in (day1, day2):
+        path.parent.mkdir()
+        path.write_bytes(b"")
+    # Nothing written yet: both would take the plain name; the run record written beside the
+    # first one's outputs is what makes the second yield.
+    assert output_paths(day1, out).transcript == out / "recording.transcript.json"
+    assert output_paths(day2, out).transcript == out / "recording.transcript.json"
+    write_json_atomic({"schema": "x", "input_path": str(day1)}, out / "recording.run.json")
+    assert output_paths(day1, out).transcript == out / "recording.transcript.json"
+    assert output_paths(day2, out).transcript == out / "day2-recording.transcript.json"
+    assert output_paths(day2, out).review == out / "day2-recording.review.json"
+    # That name taken too by a third recording: a short digest of the path, stable across calls.
+    write_json_atomic({"input_path": str(tmp_path / "elsewhere" / "day2" / "recording.wav")}, out / "day2-recording.run.json")
+    third = output_paths(day2, out).transcript.name
+    assert third.startswith("recording-") and third.endswith(".transcript.json")
+    assert len(third) == len("recording-12345678.transcript.json") and third == output_paths(day2, out).transcript.name
+    # A record written from a relative path still matches its own file by the last two components.
+    write_json_atomic({"input_path": "day1/recording.wav"}, out / "recording.run.json")
+    assert output_paths(day1, out).transcript == out / "recording.transcript.json"
+    assert output_paths(day2, out).transcript != out / "recording.transcript.json"
+    # Beside each recording the rule does not apply: the folders keep them apart.
+    assert output_paths(day1).transcript == day1.parent / "recording.transcript.json"
+    assert output_paths(day2).transcript == day2.parent / "recording.transcript.json"
+
+
+def test_one_folder_batch_keeps_both_recordings(models, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    sources = []
+    for day in ("day1", "day2"):
+        folder = tmp_path / day
+        folder.mkdir()
+        sources.append(audio.synthetic_wav(folder / "recording.wav", 1.0))
+    result = run_batch(sources, profile_for("standard"), models, out_dir=out, engines=make_engines(),
+                       record_dir=tmp_path / "runs", plan=make_plan_for())
+    assert len(result.completed) == 2
+    transcripts = sorted(p.name for p in out.glob("*.transcript.json"))
+    assert transcripts == ["day2-recording.transcript.json", "recording.transcript.json"]
+    first = json.loads((out / "recording.transcript.json").read_text(encoding="utf-8"))
+    second = json.loads((out / "day2-recording.transcript.json").read_text(encoding="utf-8"))
+    assert first["source"]["name"] == second["source"]["name"] == "recording.wav"
+    assert result.completed[0].result.outputs.transcript == out / "recording.transcript.json"
+    assert result.completed[1].result.outputs.transcript == out / "day2-recording.transcript.json"
+
+
+def test_folder_cache_lists_a_folder_once_and_only_within_its_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from twinscribe.pipeline import folder_cache
+
+    (tmp_path / "call.mp3").write_bytes(b"")
+    listed: list[Path] = []
+    real = Path.iterdir
+
+    def counting(self):
+        listed.append(self)
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", counting)
+    with folder_cache():
+        for _ in range(5):
+            assert output_paths(tmp_path / "call.mp3").text == tmp_path / "call.txt"
+    assert len(listed) == 1
+    listed.clear()
+    output_paths(tmp_path / "call.mp3")
+    output_paths(tmp_path / "call.mp3")
+    assert len(listed) == 2                          # outside a block every lookup lists afresh
+    with folder_cache():
+        assert output_paths(tmp_path / "call.mp3").text == tmp_path / "call.txt"
+        (tmp_path / "call.wav").write_bytes(b"")
+    # A sibling that arrived while a block was open is seen by the next lookup outside it.
+    assert output_paths(tmp_path / "call.mp3").text == tmp_path / "call.mp3.txt"
+
+
+def test_writable_folder_makes_the_folder_or_names_the_reason(tmp_path: Path) -> None:
+    from twinscribe.pipeline import writable_folder
+
+    assert writable_folder(tmp_path / "new" / "deep") is None
+    assert (tmp_path / "new" / "deep").is_dir() and not list((tmp_path / "new" / "deep").iterdir())
+    blocker = tmp_path / "a-file"
+    blocker.write_bytes(b"")
+    reason = writable_folder(blocker / "inside")     # a file stands where the folder must be
+    assert reason is not None and reason
+
+
+def test_batch_record_failure_keeps_the_outcomes(recording: Path, models, tmp_path: Path) -> None:
+    blocker = tmp_path / "blocked"
+    blocker.write_bytes(b"")                          # a file where the runs folder must be
+    result = run_batch([recording], profile_for("standard"), models, engines=make_engines(),
+                       record_dir=blocker / "runs", history_path=tmp_path / "history.json", plan=make_plan_for())
+    assert len(result.completed) == 1 and not result.failures
+    assert result.record_path is None and result.record_error and "blocked" in result.record_error
+    assert output_paths(recording).transcript.is_file()

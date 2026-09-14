@@ -52,3 +52,23 @@ observed.
 - Editing the engine's own words in place is out of scope: the design's rule is that the
   published engine's transcript is what the engine produced, verified against the recording;
   a person's corrections belong beside it, marked, which is what the listener lines are.
+
+## Words inside a line, and the speaker
+
+- The first rule, a speaker only when the same one spoke immediately before and after the
+  gap, left the commonest gap unlabelled: on the showcase chapter thirty-eight of forty marks
+  fall inside an engine line (a pause between 0.8 s and the 1.5 s line break), and a line
+  that contains the gap is neither before nor after it. The rule now looks for the containing
+  line first; the same voice is on both sides of such a pause by construction.
+- Words kept for a gap inside a line were placed after the whole line, up to sixty words
+  late, because the line is one entry that starts before the gap. The containing line is now
+  split around the gap into two lines of the same speaker, every word untouched, and the
+  pieces carry a `split_from` mark so that taking the listener's line out joins them again
+  exactly. The speaker's seconds are therefore no longer counted twice over the gap.
+- A resolution may name the speaker (`speaker`); the verification screen's "Spoken by" box
+  sets it, and the recorded resolution carries the speaker the line was given, so a pass
+  seeded from the document keeps it. `resolutions_from_document` and `listener_line_for` serve
+  that seeding and the status line.
+- The header of the text and Word outputs says when every mark has been checked, rather than
+  that speech may still be missing; a subtitle cue of the listener's words carries the mark in
+  its prefix, as every other output does.

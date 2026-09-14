@@ -14,7 +14,7 @@ published engine's silent failures become a short, ordered list of places to lis
 
 ## 2. Layout, top to bottom
 
-1. Header line: the audio file name, its duration in minutes, "published by <engine model>",
+1. Header line: the audio file name, its length as m:ss, "published by <engine model>",
    "checked against <engine model>, which is never published".
 2. Summary line: the number of marks and the share of the recording they cover; when the
    review set carries an evaluation, also how many marks were on real speech and what share
@@ -27,10 +27,13 @@ published engine's silent failures become a short, ordered list of places to lis
      of detector words; a tick prefix once resolved;
    - right: the current mark. A bold "start to end (n seconds)" line; a read-only panel
      "what the published transcript has here" showing up to fourteen published words either
-     side of the gap with a visible `[ GAP ]` between; a words box, "what was said here, in
-     the listener's words", holding what the second engine heard in the span as the text to
-     edit, under a caption that says so and that the kept words are recorded as the
-     listener's; and, only when the review set carries reference information, a clearly
+     side of the gap with a visible `[ GAP ]` between, each side opening with its speaker's
+     name when the transcript document is beside the review set; a words box, "what was said
+     here, in the listener's words", holding what the second engine heard in the span as the
+     text to edit, under a caption that says so and that the kept words are recorded as the
+     listener's, with a "Spoken by" box under it offering the document's speakers, no
+     speaker, or the speaker the lines around the gap suggest (the default); and, only when
+     the review set carries reference information, a clearly
      labelled test-only panel stating how many reference words fall in the span and which
      speakers, or that the mark is a false alarm. Then four buttons: "Play this span
      (Enter)", "Nothing was said (N)", "Keep these words (Ctrl+Enter)", "Reopen (O)", and a
@@ -50,14 +53,25 @@ published engine's silent failures become a short, ordered list of places to lis
   when the file is missing, playback controls do nothing and the status line says so, and the
   screen otherwise works.
 - Resolutions are kept in memory and written on close to `<review_set stem>.session.json`
-  beside the review set: `{"schema": "twinscribe.review-session.v1", "marks": [{"start", "end", "status", "note"}]}`.
-  Also written whenever a mark is resolved, so a crash loses nothing.
+  beside the review set: `{"schema": "twinscribe.review-session.v1", "marks": [{"start", "end", "status", "note", "speaker"}]}`
+  (`speaker` a label, an empty string for none, or null to take the speaker the lines around
+  the gap suggest). Also written whenever a mark is resolved, so a crash loses nothing.
 - Every resolution, and every reopening, is also written into the transcript document beside
   the review set when there is one, as `review_edits.md` describes, and the text, Word and
-  subtitle files are rendered again; the status line says so, or says that only the session
-  file holds the resolutions when no transcript document is beside the review set. The window
-  emits `transcript_changed` with the revised document, so the window that opened the screen
-  can follow.
+  subtitle files are rendered again, each on its own: an output that cannot be written (a Word
+  document open in Word) is named in the status line, the document still counts as written,
+  and the file is written again on the next decision. The status line says what was written,
+  and for kept words which speaker they were given, or says that only the session file holds
+  the decisions when no transcript document is beside the review set. The window emits
+  `transcript_changed` with the revised document and `mark_written` with the mark's index, so
+  the window that opened the screen can follow.
+- After a decision the keys named in the footer act again wherever the cursor was: a decision
+  made from the words box returns the cursor to the list. The pause the screen makes at the
+  end of a span leaves the status line alone.
+- A session file that does not match the marks is set aside and the opening status says so.
+  Without a matching session file, the decisions the transcript document beside the review set
+  already records seed the pass, so an exported or tidied folder never loses the listener's
+  lines on the first decision. A resumed pass opens on the first open mark.
 - The list row of a checked mark carries a tick and what was recorded: "nothing said", or the
   kept words cut to the row; the summary line counts the marks checked.
 - Window title shows "<n> of <total> done".
@@ -103,3 +117,22 @@ transcript document and its outputs the moment it is made, so what is on disk is
 the listener has decided so far. A mark can be reopened, which takes its words out again.
 The screen plays to the output device chosen in the player bar, and each mark plays when it
 is selected.
+
+## The speaker of the words, and decisions that outlive the session file
+
+On a two-party call the published engine drops the short replies at the turns, which is
+exactly where the lines around a gap disagree on the speaker, so the words the listener keeps
+came out unlabelled with no way to say who spoke. The words box now has a "Spoken by" box
+under it, filled from the transcript document beside the review set: the speaker the lines
+around the gap suggest (the default; a gap inside one speaker's line takes that speaker), each
+named speaker, or no speaker. The choice is kept in the session entry as `speaker` (a label,
+an empty string for none, absent to infer) and honoured when the session is applied; the
+status line names the speaker the line was given. The context panel names the speakers on
+either side of the gap.
+
+A pass whose session file is gone, an exported folder or a tidied one, used to open with every
+mark shown open, and the first decision took every earlier listener line out of the
+transcript. The transcript document records each mark's decision, so those decisions seed
+the pass when no matching session file is beside the review set, and the status says which
+file they came from. The screen plays at the volume and speed of the player bar that opened
+it, and there is one screen at a time.

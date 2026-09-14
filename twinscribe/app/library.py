@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOpti
 from twinscribe.app.icons import paint_icon
 from twinscribe.app.theme import Theme, theme_for, with_alpha
 from twinscribe.outputs.transcript_doc import TRANSCRIPT_SCHEMA, clock, speaker_count
-from twinscribe.pipeline import discover_media, is_video, output_paths
+from twinscribe.pipeline import discover_media, folder_cache, is_video, output_paths
 
 STATUS_NEW = "new"
 STATUS_QUEUED = "queued"
@@ -91,12 +91,32 @@ def read_document_facts(path: Path) -> dict[str, Any] | None:
         return None
     if not isinstance(doc, dict) or doc.get("schema") != TRANSCRIPT_SCHEMA:
         return None
+    source = doc.get("source", {})
     return {
-        "name": str(doc.get("source", {}).get("name", "")),
+        "name": str(source.get("name", "")),
+        "bytes": int(source.get("bytes", 0) or 0),
         "duration_s": float(doc.get("duration_s", 0.0)),
         "speakers": speaker_count(doc),
         "marks": int(doc.get("review", {}).get("marks", 0)),
     }
+
+
+def document_is_for(facts: dict[str, Any], path: Path) -> bool:
+    """Whether document facts describe the recording at `path`: the same file name and, when
+    both are known, the same size, so a document about another file of the same name (one
+    output folder, two recordings) is not shown as this one's."""
+    if facts["name"] != path.name:
+        return False
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return True
+    return not facts["bytes"] or facts["bytes"] == size
+
+
+def path_key(path: Path) -> str:
+    """The identity of a recording in the library: its resolved path, case-folded."""
+    return str(Path(path).resolve()).lower()
 
 
 class LibraryModel(QAbstractListModel):
@@ -105,6 +125,7 @@ class LibraryModel(QAbstractListModel):
     def __init__(self, parent: QObject | None = None, out_dir: Path | None = None) -> None:
         super().__init__(parent)
         self._items: list[MediaItem] = []
+        self._keys: dict[str, int] = {}
         self._out_dir = out_dir
 
     def set_output_dir(self, out_dir: Path | None) -> None:
@@ -137,18 +158,19 @@ class LibraryModel(QAbstractListModel):
         return self._items[row]
 
     def row_for_path(self, path: Path) -> int | None:
-        wanted = str(Path(path).resolve()).lower()
-        for row, item in enumerate(self._items):
-            if str(item.path.resolve()).lower() == wanted:
-                return row
-        return None
+        # A lookup table rather than a scan: resolving every item's path per lookup made
+        # adding a folder of hundreds of recordings quadratic.
+        return self._keys.get(path_key(path))
+
+    def _reindex(self) -> None:
+        self._keys = {path_key(item.path): row for row, item in enumerate(self._items)}
 
     def refresh_item(self, row: int) -> None:
         """Look again for a transcript document beside the recording and update the state."""
         item = self._items[row]
         transcript = output_paths(item.path, self._out_dir).transcript
         facts = read_document_facts(transcript)
-        if facts is not None and facts["name"] == item.path.name:
+        if facts is not None and document_is_for(facts, item.path):
             item.status = STATUS_DONE
             item.transcript_path = transcript
             item.duration_s = facts["duration_s"]
@@ -166,16 +188,25 @@ class LibraryModel(QAbstractListModel):
         """Add the recordings found under `paths`; returns the rows added (duplicates skipped)."""
         found = discover_media(paths, recursive=recursive)
         added: list[int] = []
-        for path in found:
-            if self.row_for_path(path) is not None:
-                continue
-            row = len(self._items)
-            self.beginInsertRows(QModelIndex(), row, row)
-            self._items.append(MediaItem(path=path))
-            self.endInsertRows()
-            self.refresh_item(row)
-            added.append(row)
+        with folder_cache():
+            for path in found:
+                key = path_key(path)
+                if key in self._keys:
+                    continue
+                row = len(self._items)
+                self.beginInsertRows(QModelIndex(), row, row)
+                self._items.append(MediaItem(path=path))
+                self._keys[key] = row
+                self.endInsertRows()
+                self.refresh_item(row)
+                added.append(row)
         return added
+
+    def refresh_all(self) -> None:
+        """Look again for every recording's transcript document, listing each folder once."""
+        with folder_cache():
+            for row in range(len(self._items)):
+                self.refresh_item(row)
 
     def remove_rows(self, rows: Sequence[int]) -> None:
         for row in sorted(set(rows), reverse=True):
@@ -183,10 +214,12 @@ class LibraryModel(QAbstractListModel):
                 self.beginRemoveRows(QModelIndex(), row, row)
                 del self._items[row]
                 self.endRemoveRows()
+        self._reindex()
 
     def clear(self) -> None:
         self.beginResetModel()
         self._items.clear()
+        self._keys = {}
         self.endResetModel()
 
     def pending_rows(self) -> list[int]:

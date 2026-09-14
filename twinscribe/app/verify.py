@@ -3,11 +3,11 @@
 A review set (schema `twinscribe.review.v1`) lists the spans where the published engine
 heard nothing and the second engine heard speech. This screen plays each span, shows the
 published transcript either side of the gap, and takes for every mark either that nothing
-was said or the words that were, typed in place over what the second engine heard. Every
-resolution is written at once to `<review_set stem>.session.json` beside the review set and,
-when the transcript document sits beside it, into the transcript itself: the listener's
-words become a line of their own, marked as heard on review, and the text, Word and
-subtitle files are written again.
+was said or the words that were, typed in place over what the second engine heard, with the
+speaker they belong to. Every resolution is written at once to `<review_set stem>.session.json`
+beside the review set and, when the transcript document sits beside it, into the transcript
+itself: the listener's words become a line of their own, marked as heard on review, and the
+text, Word and subtitle files are written again.
 
 Entry point: `python -m twinscribe.app.verify <review_set.json> [--dark] [--shot out.png]`.
 
@@ -20,18 +20,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QFont, QKeyEvent, QPalette
 from PySide6.QtMultimedia import QAudioDevice, QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -45,9 +45,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from twinscribe.amend import listener_line_for, resolutions_from_document
 from twinscribe.app.app_icon import app_icon
 from twinscribe.app.theme import Theme, apply_theme, theme_for
 from twinscribe.app.timeline import Timeline, format_mss
+from twinscribe.labelling import UNLABELLED_NAME
+from twinscribe.outputs.transcript_doc import load_document, speaker_names
+from twinscribe.runrecord import write_json_atomic
 
 REVIEW_SCHEMA = "twinscribe.review.v1"
 SESSION_SCHEMA = "twinscribe.review-session.v1"
@@ -55,10 +59,12 @@ CONTEXT_WORDS = 14
 GAP_MARKER = "[ GAP ]"
 NUDGE_S = 5.0
 SHOT_DELAY_MS = 800
-TICK = "\u2713"  # check mark shown before a resolved row
+TICK = "✓"  # check mark shown before a resolved row
 ROW_NOTE_CHARS = 24
 STATUS_NOTE_CHARS = 60
 CAPTION_TAIL = "the kept words are recorded as the listener's, marked heard on review."
+SPEAKER_INFERRED = "Speaker: as the lines around the gap suggest"
+SPEAKER_NONE = "No speaker"
 
 STATUS_OPEN = "open"
 STATUS_NOTHING = "nothing"
@@ -126,12 +132,15 @@ class ReviewSet:
 
 @dataclass
 class Resolution:
-    """What a person recorded for one mark; `status` is open, nothing or text."""
+    """What a person recorded for one mark: `status` is open, nothing or text; `speaker` is
+    the label the words belong to, an empty string for none, or None to take the speaker the
+    lines around the gap suggest."""
 
     start: float
     end: float
     status: str = STATUS_OPEN
     note: str = ""
+    speaker: str | None = None
 
     @property
     def resolved(self) -> bool:
@@ -208,6 +217,13 @@ def session_path_for(review_path: Path) -> Path:
     return review_path.with_name(f"{review_path.stem}.session.json")
 
 
+def transcript_path_for(review_path: Path) -> Path:
+    """The transcript document beside a review set, named by the same stem."""
+    name = review_path.name
+    stem = name[: -len(".review.json")] if name.endswith(".review.json") else review_path.stem
+    return review_path.with_name(f"{stem}.transcript.json")
+
+
 def fresh_resolutions(marks: Sequence[ReviewMark]) -> list[Resolution]:
     """One open resolution per mark."""
     return [Resolution(start=m.start, end=m.end) for m in marks]
@@ -220,19 +236,7 @@ def session_document(resolutions: Sequence[Resolution]) -> dict:
 
 def write_session(path: Path, resolutions: Sequence[Resolution]) -> None:
     """Write the session atomically: a temporary file in the same folder, then a rename."""
-    payload = json.dumps(session_document(resolutions), indent=2, ensure_ascii=False)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=path.stem + ".", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    write_json_atomic(session_document(resolutions), path)
 
 
 def read_session(path: Path, marks: Sequence[ReviewMark]) -> list[Resolution] | None:
@@ -267,8 +271,69 @@ def read_session(path: Path, marks: Sequence[ReviewMark]) -> list[Resolution] | 
             return None
         if status not in (STATUS_OPEN, STATUS_NOTHING, STATUS_TEXT):
             status = STATUS_OPEN
-        out.append(Resolution(start=mark.start, end=mark.end, status=status, note=note))
+        speaker = entry.get("speaker")
+        out.append(Resolution(start=mark.start, end=mark.end, status=status, note=note,
+                              speaker=None if speaker is None else str(speaker)))
     return out
+
+
+def resolutions_from_transcript(transcript_path: Path, marks: Sequence[ReviewMark]) -> list[Resolution] | None:
+    """Resolutions seeded from what the transcript document beside the review set records,
+    for a pass whose session file is gone; None when there is no such document, it cannot
+    be read, or its marks do not match."""
+    if not transcript_path.is_file():
+        return None
+    try:
+        doc = load_document(transcript_path)
+    except (OSError, ValueError):
+        return None
+    recorded = resolutions_from_document(doc)
+    if len(recorded) != len(marks):
+        return None
+    out: list[Resolution] = []
+    for entry, mark in zip(recorded, marks):
+        status = str(entry.get("status", STATUS_OPEN))
+        if status not in (STATUS_OPEN, STATUS_NOTHING, STATUS_TEXT):
+            status = STATUS_OPEN
+        out.append(Resolution(start=mark.start, end=mark.end, status=status, note=str(entry.get("note", "")),
+                              speaker=entry.get("speaker")))
+    return out
+
+
+def document_speakers(transcript_path: Path) -> list[tuple[str, str]] | None:
+    """(label, name) of the transcript document's speakers beside the review set, in the
+    document's order; None when there is no document."""
+    if not transcript_path.is_file():
+        return None
+    try:
+        doc = load_document(transcript_path)
+    except (OSError, ValueError):
+        return None
+    names = speaker_names(doc)
+    return [(str(entry["label"]), names.get(str(entry["label"]), str(entry["label"])))
+            for entry in doc.get("speakers", []) if entry.get("label") is not None]
+
+
+def document_words(transcript_path: Path) -> list[tuple[float, str | None, str]] | None:
+    """(start, speaker label, word) of the engine lines of the transcript document beside
+    the review set, in time order; None when there is no document."""
+    if not transcript_path.is_file():
+        return None
+    try:
+        doc = load_document(transcript_path)
+    except (OSError, ValueError):
+        return None
+    words: list[tuple[float, str | None, str]] = []
+    for line in doc.get("lines", []):
+        if line.get("src") == "listener":
+            continue
+        label = line.get("speaker")
+        for word in line.get("words", []):
+            text = str(word.get("w", "")).strip()
+            if text:
+                words.append((float(word.get("s", 0.0)), None if label is None else str(label), text))
+    words.sort(key=lambda entry: entry[0])
+    return words
 
 
 # ----- formatting ----------------------------------------------------------------------
@@ -305,6 +370,33 @@ def context_around_gap(words: Sequence[TranscriptWord], span_start: float, span_
     parts.extend(before[-each_side:] if each_side > 0 else [])
     parts.append(GAP_MARKER)
     parts.extend(after[:each_side])
+    if len(after) > each_side:
+        parts.append("...")
+    return " ".join(parts)
+
+
+def context_with_speakers(words: Sequence[tuple[float, str | None, str]], names: dict[str, str],
+                          span_start: float, each_side: int = CONTEXT_WORDS) -> str:
+    """As context_around_gap, from a transcript document's words with their speakers: each
+    side opens with its speaker's name, and the name is repeated where the speaker changes,
+    so a listener sees who was talking on either side of the gap."""
+    before = [w for w in words if w[0] < span_start]
+    after = [w for w in words if w[0] >= span_start]
+    parts: list[str] = []
+
+    def add(side: list[tuple[float, str | None, str]]) -> None:
+        last: object = object()
+        for _, label, text in side:
+            if label != last:
+                parts.append((names.get(label, label) if label is not None else UNLABELLED_NAME) + ":")
+                last = label
+            parts.append(text)
+
+    if len(before) > each_side:
+        parts.append("...")
+    add(before[-each_side:] if each_side > 0 else [])
+    parts.append(GAP_MARKER)
+    add(after[:each_side])
     if len(after) > each_side:
         parts.append("...")
     return " ".join(parts)
@@ -364,15 +456,17 @@ def progress_text(done: int, total: int) -> str:
 
 
 def header_text(review: ReviewSet, audio_path: Path) -> str:
-    """The header line: file name, minutes, and both engines."""
-    minutes = review.duration_s / 60.0
-    return (f"{audio_path.name}   |   {minutes:.1f} min   |   published by {review.publisher}"
+    """The header line: file name, length, and both engines."""
+    return (f"{audio_path.name}   |   {format_mss(review.duration_s)}   |   published by {review.publisher}"
             f"   |   checked against {review.detector}, which is never published")
 
 
-def hint_text(mark: ReviewMark) -> str:
+def hint_text(mark: ReviewMark, resolution: Resolution | None = None) -> str:
     """The caption over the words box: what the second engine heard in the span, as the
-    starting point, and what becomes of the words that are kept."""
+    starting point, and what becomes of the words that are kept; for a span recorded as
+    silent, that it was."""
+    if resolution is not None and resolution.status == STATUS_NOTHING:
+        return "Recorded as nothing said. Type words and keep them to change that, or press O to reopen the mark."
     if mark.detector_text:
         return (f'Starts from what the second engine heard: "{mark.detector_text}". '
                 f"Edit it to what is actually said; {CAPTION_TAIL}")
@@ -406,36 +500,60 @@ FOOTER_TEXT = ("Space play or pause   |   J next   |   K previous   |   Enter pl
 class VerifyWindow(QMainWindow):
     """Main window of the verification screen.
 
-    `audio_device` is the output device to play to; the system default when None.
-    `transcript_changed` carries the revised transcript document after every write, so the
-    window that opened the screen can show the listener's lines while the screen is open.
+    `audio_device`, `volume` and `rate` are the output device, volume and speed to play with,
+    so the screen sounds as the player bar that opened it. `transcript_changed` carries the
+    revised transcript document after every write and `mark_written` the index of the mark
+    just decided, so the window that opened the screen can show the listener's lines while
+    the screen is open.
     """
 
     transcript_changed = Signal(object)
+    mark_written = Signal(int)
 
     def __init__(self, review: ReviewSet, review_path: Path, theme: Theme | None = None,
                  parent: QWidget | None = None, author: str = "",
-                 audio_device: QAudioDevice | None = None) -> None:
+                 audio_device: QAudioDevice | None = None, volume: float = 1.0, rate: float = 1.0) -> None:
         super().__init__(parent)
         self.review = review
         self.review_path = Path(review_path)
         self.author = author
         self.audio_device = audio_device
+        self.volume = float(volume)
+        self.rate = float(rate)
         self.session_path = session_path_for(self.review_path)
         self.theme = theme if theme is not None else theme_for(False)
         self.setWindowIcon(app_icon(self.theme.dark))
         self.audio_path = resolve_audio_path(self.review_path, review.audio)
         self.audio_available = self.audio_path.is_file()
 
+        # The transcript document beside the review set supplies the speakers and, when the
+        # session file is gone, the decisions already written into it.
+        self._speakers = document_speakers(self.transcript_path()) or []
+        self._names = {label: name for label, name in self._speakers}
+        self._document_words = document_words(self.transcript_path())
+
         self.resolutions: list[Resolution] = fresh_resolutions(review.marks)
         self._resumed = False
+        self._resumed_from = ""
+        self._stale_session = False
         earlier = read_session(self.session_path, review.marks)
+        if earlier is None and self.session_path.is_file():
+            self._stale_session = True
+        if earlier is None:
+            earlier = resolutions_from_transcript(self.transcript_path(), review.marks)
+            if earlier is not None and any(r.resolved for r in earlier):
+                self._resumed_from = "the transcript document"
+            else:
+                earlier = None
+        elif any(r.resolved for r in earlier):
+            self._resumed_from = "the session file"
         if earlier is not None:
             self.resolutions = earlier
             self._resumed = True
 
         self._position_s = 0.0
         self._stop_at_s: float | None = None
+        self._auto_paused = False
         self._current: int | None = None
         self._session_error: str | None = None
         # Selecting a mark plays its span, except the first selection when the screen opens.
@@ -446,7 +564,8 @@ class VerifyWindow(QMainWindow):
         self._populate()
 
         if review.marks:
-            self.mark_list.setCurrentRow(0)
+            first_open = next((i for i, r in enumerate(self.resolutions) if not r.resolved), 0)
+            self.mark_list.setCurrentRow(first_open)
         self._play_on_select = True
         self._refresh_title()
         self._refresh_summary()
@@ -522,6 +641,21 @@ class VerifyWindow(QMainWindow):
         self.words_edit.setMinimumHeight(60)
         self.words_edit.setTabChangesFocus(True)
         words_layout.addWidget(self.words_edit)
+        speaker_row = QHBoxLayout()
+        speaker_row.addWidget(QLabel("Spoken by", words_box))
+        self.speaker_box = QComboBox(words_box)
+        self.speaker_box.setToolTip(
+            "Whose words these are; by default the speaker the lines around the gap suggest, "
+            "which a gap between two speakers leaves undecided"
+        )
+        self.speaker_box.addItem(SPEAKER_INFERRED, None)
+        for label, name in self._speakers:
+            self.speaker_box.addItem(name, label)
+        self.speaker_box.addItem(SPEAKER_NONE, "")
+        speaker_row.addWidget(self.speaker_box, 1)
+        words_layout.addLayout(speaker_row)
+        if not self._speakers:
+            self.speaker_box.hide()
         right_layout.addWidget(words_box, 2)
 
         self.reference_panel: QGroupBox | None = None
@@ -575,7 +709,8 @@ class VerifyWindow(QMainWindow):
         # Children that take focus consume keys before the window sees them (a list view
         # turns letters into a keyboard search, a text panel scrolls on Space), so the
         # window filters key presses on each of them. The words box is filtered too, but
-        # gives up only Ctrl+Enter and Esc: every other key types into it.
+        # gives up only Ctrl+Enter and Esc: every other key types into it. A button keeps
+        # Space and Enter, which press it.
         for widget in (self.mark_list, self.context_panel, self.words_edit, self.play_button,
                        self.nothing_button, self.keep_button, self.reopen_button, self.timeline):
             widget.installEventFilter(self)
@@ -590,7 +725,9 @@ class VerifyWindow(QMainWindow):
             self.audio_output = QAudioOutput(self)
             if self.audio_device is not None:
                 self.audio_output.setDevice(self.audio_device)
+            self.audio_output.setVolume(min(1.0, max(0.0, self.volume)))
             self.player.setAudioOutput(self.audio_output)
+            self.player.setPlaybackRate(self.rate)
             self.player.positionChanged.connect(self._on_position_changed)
             self.player.errorOccurred.connect(self._on_player_error)
             self.player.playbackStateChanged.connect(self._on_playback_state_changed)
@@ -614,7 +751,7 @@ class VerifyWindow(QMainWindow):
             self.hint_label.setText("")
             self.words_edit.setPlainText("")
             for widget in (self.play_button, self.nothing_button, self.keep_button,
-                           self.reopen_button, self.words_edit):
+                           self.reopen_button, self.words_edit, self.speaker_box):
                 widget.setEnabled(False)
 
     def _initial_status(self) -> None:
@@ -626,10 +763,13 @@ class VerifyWindow(QMainWindow):
                          "Playback controls do nothing; resolutions are still recorded.")
         else:
             parts.append(f"Audio loaded: {self.audio_path.name}.")
+        if self._stale_session:
+            parts.append("An earlier session file did not match these marks and was set aside.")
         if self._resumed and self.done_count() > 0:
-            parts.append(f"Resumed {self.done_count()} of {len(self.resolutions)} earlier resolutions.")
+            parts.append(f"Resumed {self.done_count()} of {len(self.resolutions)} earlier decisions "
+                         f"from {self._resumed_from}.")
         if self.review.marks and not self.transcript_path().is_file():
-            parts.append("No transcript document beside the review set: resolutions go to the "
+            parts.append("No transcript document beside the review set: decisions go to the "
                          "session file only.")
         self.set_status(" ".join(parts))
 
@@ -699,9 +839,13 @@ class VerifyWindow(QMainWindow):
         self.timeline.set_current(index)
         self.span_label.setText(
             f"{format_mss_t(mark.start)} to {format_mss_t(mark.end)} ({mark.play_length:.1f} seconds)")
-        self.context_panel.setPlainText(
-            context_around_gap(self.review.transcript, mark.span_start, mark.span_end))
-        self.hint_label.setText(hint_text(mark))
+        if self._document_words:
+            self.context_panel.setPlainText(
+                context_with_speakers(self._document_words, self._names, mark.span_start))
+        else:
+            self.context_panel.setPlainText(
+                context_around_gap(self.review.transcript, mark.span_start, mark.span_end))
+        self.hint_label.setText(hint_text(mark, self.resolutions[index]))
         self._fill_editor(index)
         if self.reference_label is not None:
             text, spoken = describe_reference(mark)
@@ -720,7 +864,8 @@ class VerifyWindow(QMainWindow):
 
     def _fill_editor(self, index: int) -> None:
         """The words box for a mark: the listener's words when there are any, nothing for a
-        span resolved as silent, else what the second engine heard, to be edited."""
+        span resolved as silent, else what the second engine heard, to be edited; the speaker
+        box shows the speaker the words were given."""
         resolution = self.resolutions[index]
         if resolution.status == STATUS_TEXT:
             text = resolution.note
@@ -731,6 +876,8 @@ class VerifyWindow(QMainWindow):
         self.words_edit.setPlainText(text)
         if self.words_edit.hasFocus():
             self.words_edit.selectAll()
+        position = self.speaker_box.findData(resolution.speaker) if resolution.speaker is not None else 0
+        self.speaker_box.setCurrentIndex(position if position >= 0 else 0)
 
     # ----- playback -------------------------------------------------------------------
 
@@ -797,10 +944,17 @@ class VerifyWindow(QMainWindow):
         if self._stop_at_s is not None and seconds >= self._stop_at_s:
             self._stop_at_s = None
             if self.player is not None:
+                # The pause at a span end is the screen's own; it leaves the status line, and
+                # what it says about the last decision, alone.
+                self._auto_paused = True
                 self.player.pause()
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if state == QMediaPlayer.PlaybackState.PlayingState:
+            self._auto_paused = False
+            return
+        if self._auto_paused:
+            self._auto_paused = False
             return
         if self._stop_at_s is None and self.current_mark is not None and self.audio_available:
             self.set_status(f"Paused at {format_mss_t(self._position_s)}.")
@@ -829,15 +983,16 @@ class VerifyWindow(QMainWindow):
         self.set_status("Type what was said, then Ctrl+Enter or Keep these words; Esc goes back to the list.")
 
     def keep_words(self) -> None:
-        """Ctrl+Enter: record the words in the box as what was said in the current span,
-        then advance."""
+        """Ctrl+Enter: record the words in the box as what was said in the current span, for
+        the speaker chosen in the box, then advance."""
         if self._current is None:
             return
         note = self.words_edit.toPlainText().strip()
         if not note:
             self.set_status("Nothing typed: type what was said, or press N when nothing was said.")
             return
-        self._resolve(self._current, STATUS_TEXT, note)
+        chosen = self.speaker_box.currentData() if self.speaker_box.isVisible() or self._speakers else None
+        self._resolve(self._current, STATUS_TEXT, note, speaker=chosen)
 
     def reopen(self) -> None:
         """O: set the current mark back to open; the listener's words for it leave the
@@ -849,28 +1004,48 @@ class VerifyWindow(QMainWindow):
             return
         self._resolve(self._current, STATUS_OPEN, "", advance=False)
 
-    def _resolve(self, index: int, status: str, note: str, advance: bool = True) -> None:
+    def _resolve(self, index: int, status: str, note: str, advance: bool = True,
+                 speaker: str | None = None) -> None:
         resolution = self.resolutions[index]
         resolution.status = status
         resolution.note = note
+        resolution.speaker = speaker if status == STATUS_TEXT else None
         self._refresh_row(index)
         self._write_session()
-        _, written = self._apply()
+        revised, written = self._apply()
         self._refresh_title()
         self._refresh_summary()
         if status == STATUS_NOTHING:
             what = f"Mark {index + 1}: nothing was said."
         elif status == STATUS_TEXT:
-            what = f'Mark {index + 1}: "{shorten(note, STATUS_NOTE_CHARS)}".'
+            what = f'Mark {index + 1}: "{shorten(note, STATUS_NOTE_CHARS)}"{self._spoken_by(revised, index)}.'
         else:
             what = f"Mark {index + 1} is open again."
         if self._session_error is not None:
             written = f"Could not write the session file: {self._session_error}. {written}"
         self.set_status(f"{what} {written}")
+        if revised is not None:
+            self.mark_written.emit(index)
+        # After a decision the keys named in the footer act again, wherever the cursor was.
+        if self.words_edit.hasFocus():
+            self.mark_list.setFocus(Qt.FocusReason.OtherFocusReason)
         if advance and index + 1 < len(self.review.marks):
             self.select_mark(index + 1)
         else:
+            self.hint_label.setText(hint_text(self.review.marks[index], self.resolutions[index]))
             self._fill_editor(index)
+
+    def _spoken_by(self, revised: dict | None, index: int) -> str:
+        """", as Speaker 2" or ", without a speaker" for the words just written."""
+        if revised is None:
+            return ""
+        line = listener_line_for(revised, index)
+        if line is None:
+            return ""
+        label = line.get("speaker")
+        if label is None:
+            return ", without a speaker"
+        return f", as {self._names.get(str(label), str(label))}"
 
     def _refresh_row(self, index: int) -> None:
         item = self.mark_list.item(index)
@@ -880,32 +1055,40 @@ class VerifyWindow(QMainWindow):
 
     def transcript_path(self) -> Path:
         """The transcript document beside the review set, named by the same stem."""
-        name = self.review_path.name
-        stem = name[: -len(".review.json")] if name.endswith(".review.json") else self.review_path.stem
-        return self.review_path.with_name(f"{stem}.transcript.json")
+        return transcript_path_for(self.review_path)
 
     def _apply(self) -> tuple[dict | None, str]:
         """Put the session's resolutions into the transcript document beside the review set
         and render its text, Word and subtitle outputs again. Returns the revised document,
-        or None, and a sentence saying what happened."""
+        or None, and a sentence saying what happened; an output that could not be written
+        (a Word document open in Word) is named, and the document still counts as written."""
         from twinscribe.amend import apply_session
+        from twinscribe.outputs import describe_failures, render_outputs
+        from twinscribe.pipeline import output_paths
 
         target = self.transcript_path()
         if not target.is_file():
             return None, (f"No transcript document beside the review set ({target.name}); "
-                          "the session file keeps the resolutions.")
+                          "the session file keeps the decisions.")
         try:
-            revised = apply_session(target, self.session_path, author=self.author)
+            revised = apply_session(target, self.session_path, author=self.author, render=False)
         except (OSError, ValueError) as exc:
-            return None, f"Could not write the transcript or its outputs: {exc}"
+            return None, f"Could not write the transcript: {exc}"
+        self.transcript_changed.emit(revised)
+        stem = target.name[: -len(".transcript.json")]
+        paths = output_paths(target.parent / stem, target.parent)
+        failures = render_outputs(revised, paths.text, paths.docx, paths.subtitles, author=self.author)
         applied = revised.get("review_applied") or {}
         with_words = int(applied.get("text", 0))
         silent = int(applied.get("nothing", 0))
         open_count = int(applied.get("open", 0))
         noun = "span" if with_words == 1 else "spans"
         sentence = (f"Transcript written: {with_words} {noun} with the listener's words, {silent} silent, "
-                    f"{open_count} still open; the text, Word and subtitle files are written again.")
-        self.transcript_changed.emit(revised)
+                    f"{open_count} still open; ")
+        if failures:
+            sentence += describe_failures(failures) + "; the transcript is written and the file is written again on the next decision."
+        else:
+            sentence += "the text, Word and subtitle files are written again."
         return revised, sentence
 
     def apply_to_transcript(self) -> dict | None:
@@ -991,6 +1174,9 @@ class VerifyWindow(QMainWindow):
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
             if watched is self.words_edit:
                 return self._editor_key(event.key(), event.modifiers())
+            if isinstance(watched, QAbstractButton) and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter) \
+                    and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                return super().eventFilter(watched, event)
             if self.handle_key(event.key(), event.modifiers()):
                 return True
         return super().eventFilter(watched, event)
