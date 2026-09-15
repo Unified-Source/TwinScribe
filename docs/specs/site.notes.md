@@ -34,8 +34,10 @@ Companion to `site.md`. Records what was built, what was checked, and what was l
   button and "Scribe".
 - The recording, not the animated picture. The README shows the live run as a GIF because
   the front page there plays nothing else; the page uses the MP4 of the same clip, which is
-  less than half the size, and pauses it under a reduced-motion preference while leaving the
-  controls in view.
+  about half the size, and pauses it under a reduced-motion preference while leaving the
+  controls in view. The MP4 first published was an older run whose top bar carried the mark
+  before its redrawing; it was encoded again from the frames of the retaken run, 26 seconds
+  at the animated picture's timing, so the clip, its poster and the page show one mark.
 - The download button asks for the newest release rather than naming a version in the
   markup, so the page does not go stale between releases; the markup's own address is the
   Releases page, which is right whatever the script does. `releases/latest` was not used: it

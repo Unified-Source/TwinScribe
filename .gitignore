@@ -19,3 +19,6 @@ wheels/
 # review sessions and scratch renders
 review_session.json
 *.tmp
+
+# the assembled site, written by tools/build_site.py
+_site/

@@ -118,7 +118,7 @@ nothing was converted by hand.
 
 ![The window during a live transcription: the stage strip advancing and the published engine's lines arriving](docs/images/live-transcribe.gif)
 
-*Transcribing* (23 seconds of a real run; the same clip as an [MP4](docs/media/live-transcribe.mp4)). The library on the left holds every recording added, with its state. The
+*Transcribing* (26 seconds of a real run; the same clip as an [MP4](docs/media/live-transcribe.mp4)). The library on the left holds every recording added, with its state. The
 selected recording shows its job card while it runs: the stage strip (reading the file,
 loading both engines, transcribing and checking at the same time, marking silence and noise,
 labelling speakers, writing the outputs), the elapsed time and the time left, a heartbeat,
@@ -131,13 +131,14 @@ plays it. The status line names the quality level and where each engine is runni
 *Reading with the audio.* Once a recording has been transcribed its transcript follows the
 playhead: the line under the playhead is highlighted and kept in view, the waveform timeline
 carries every review mark, and the chips at the top give each speaker's share in words and
-seconds (one reader here, so one chip). Space plays or pauses, J and K move between marks,
+seconds (two chips here: the reader, and a second label the clustering gave three seconds of the
+reading, which a rename merges). Space plays or pauses, J and K move between marks,
 the arrows nudge by five seconds. The outputs sit beside the recording: the text and Word
 transcripts, the subtitle file, the review list, the run record and the transcript document.
 
 ![The same window in the dark palette](docs/images/window-dark.png)
 
-*The dark palette*, chosen in Settings, with the second chapter playing. The two chapters here
+*The dark palette*, chosen in Settings, with the first chapter playing. The two chapters here
 took 129 s and 199 s at the Standard level on a desktop with an NVIDIA device; the transducer
 and the speaker models ran on the processor.
 
@@ -166,6 +167,11 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-15, a site.** The project's page at [twinscribe.app](https://twinscribe.app): the
+  claim, the two engines and what was measured, a transcript as the window shows it, the window
+  in use, the ways to install; assembled from `site/` by `tools/build_site.py` with the pictures
+  shown here and published from the repository (`docs/specs/site.md`). The live recording was
+  encoded again from the retaken run, whose top bar carries the mark as it is now.
 - **2026-09-15, the review reads in order.** Words a listener kept for a gap were written as a
   line of their own between the engine's lines, so a reader met the same words twice, or an
   orphan line that broke the sentence around it; and a gap was often marked for words the
