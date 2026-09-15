@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TwinScribe</title>
+<meta name="description" content="Offline transcription with speaker labels for recordings that will be relied on. Two engines. A clearer record.">
+<link rel="canonical" href="https://twinscribe.app/">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="images/icon.png">
+<link rel="stylesheet" href="site.css">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1020">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f4f9">
+<meta property="og:type" content="website">
+<meta property="og:title" content="TwinScribe">
+<meta property="og:description" content="Offline transcription with speaker labels for recordings that will be relied on. Two engines. A clearer record.">
+<meta property="og:url" content="https://twinscribe.app/">
+<meta property="og:image" content="https://twinscribe.app/images/banner.png">
+<meta property="og:image:alt" content="TwinScribe: two facing panels carrying waveforms on a dark tile. Two engines. A clearer record.">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#top" aria-label="TwinScribe, top of the page">
+    <img class="mark" src="images/icon.png" alt="" width="28" height="28">
+    <span class="wordmark"><span class="twin">Twin</span><span class="scribe">Scribe</span></span>
+  </a>
+  <nav class="menu" aria-label="Sections">
+    <a href="#design">Design</a>
+    <a href="#record">The record</a>
+    <a href="#application">Application</a>
+    <a href="#install">Install</a>
+    <a href="#licences">Licences</a>
+    <a class="external" href="https://github.com/Unified-Source/TwinScribe">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="hero-text">
+    <p class="tagline">Two engines. A clearer record.</p>
+    <h1>Offline transcription with speaker labels, for recordings that will be relied on.</h1>
+    <p class="lead">Two open engines run over every recording on an ordinary laptop, with no network
+    connection and no administrator rights. One writes the transcript. The other is never shown: it
+    marks every span where it heard speech and the first heard nothing, and those marks are the
+    review list. Verification becomes targeted listening instead of a read-through.</p>
+    <p class="actions">
+      <a class="button primary" id="download" href="https://github.com/Unified-Source/TwinScribe/releases">Download for Windows</a>
+      <a class="button" href="https://github.com/Unified-Source/TwinScribe">Source on GitHub</a>
+    </p>
+    <p class="detail" id="download-detail"><code>twinscribe-win64.zip</code> from the Releases page; the models are fetched on first start.</p>
+    <p class="digest" id="download-digest" hidden></p>
+    <p class="status">Early, and a pre-release. Windows 10 or 11 on x86-64; Linux and macOS from source.</p>
+  </div>
+  <figure class="hero-run">
+    <div class="frame">
+      <video id="run" src="media/live-transcribe.mp4" poster="images/window-transcribing.png"
+             autoplay muted loop playsinline controls preload="metadata" width="1280" height="820"
+             aria-label="The window during a live transcription: the stage strip advancing and the published engine's lines arriving"></video>
+    </div>
+    <figcaption>Twenty-three seconds of a real run: the stage strip advancing and the published
+    engine's lines arriving as they are decoded.</figcaption>
+  </figure>
+</section>
+
+<section id="design" class="section">
+  <h2>Two engines that fail in opposite directions</h2>
+  <p>Open transcription engines come in two families, and the tool runs one of each.</p>
+
+  <div class="engines">
+    <div class="panel published">
+      <p class="role">Published</p>
+      <h3>The transducer</h3>
+      <p class="engine-name">NVIDIA Parakeet TDT 0.6B v2, through sherpa-onnx</p>
+      <p>Can only emit a word while consuming audio, so it cannot write into silence. On hard audio
+      it produces nothing. Its transcript is the one published, and nothing is ever added to it.</p>
+    </div>
+    <div class="between" aria-hidden="true"><span class="dot"></span></div>
+    <div class="panel checking">
+      <p class="role">Checking</p>
+      <h3>The Whisper engine</h3>
+      <p class="engine-name">Whisper large-v3-turbo, through CTranslate2</p>
+      <p>Predicts each word partly from the words it has already written, so it always produces
+      something; on hard or silent audio it can write fluent text that was never said. Its words
+      are never shown. It has one job: to mark every span where it heard speech and the published
+      engine heard nothing.</p>
+    </div>
+  </div>
+
+  <div class="strip" role="img" aria-label="A review mark as the window shows it">Possible missed speech, 2:03.5 to 2:04.9: the second engine heard 2 words here.</div>
+
+  <p>Those marks are the review list. On public telephone recordings they landed on real missed
+  speech 61 times out of 62, covering 92 per cent of the words the published engine had dropped,
+  for 18 per cent of the audio listened to.</p>
+
+  <dl class="figures">
+    <div><dt>Marks on real missed speech</dt><dd>61 <span class="of">of 62</span></dd></div>
+    <div><dt>Of the dropped words covered</dt><dd>92<span class="of">%</span></dd></div>
+    <div><dt>Of the audio listened to</dt><dd>18<span class="of">%</span></dd></div>
+  </dl>
+
+  <p>Silence, music and background noise are marked rather than filled, so a gap in the text is
+  explained. Speakers are labelled by clustering, with the count given when it is known, and each
+  speaker's share of the words is stated at the top of the transcript, because a participant can
+  vanish from a transcript while the overall accuracy looks normal.</p>
+</section>
+
+<section id="record" class="section">
+  <h2>The record, as the window shows it</h2>
+  <p>The first chapter of a public-domain audiobook, read for LibriVox, dropped into the window
+  as it came: one reader, 10 min 54 s, mono MP3 at 22 kHz.</p>
+
+  <div class="transcript" aria-label="A transcript excerpt">
+    <div class="line"><span class="at">1:43.9</span><span class="text"><span class="who">Speaker 1</span> Huckleberry Finn. Scene The Mississippi Valley Time. Forty to fifty years ago.</span></div>
+    <div class="line"><span class="at">1:52.8</span><span class="text"><span class="who">Speaker 1</span> Chapter one</span></div>
+    <div class="line scene"><span class="at">1:53.8</span><span class="text">silence, 3 s, to 1:56.5.</span></div>
+    <div class="line"><span class="at">1:56.5</span><span class="text"><span class="who">Speaker 1</span> You don't know about me without you've read a book by the name of The Adventures of Tom Sawyer. That ain't no matter. Was made by Mr. Mark Twain. And he told the truth mainly. There was things which he stretched, but mainly he told the truth. ...</span></div>
+    <div class="line mark"><span class="text">Possible missed speech, 2:03.5 to 2:04.9: the second engine heard 2 words here.</span></div>
+    <div class="line"><span class="at">2:18.0</span><span class="text"><span class="who">Speaker 1</span> another, without it was Aunt Polly or the widow. Or maybe marry. Polly. Tom's Aunt Polly, she is. and Mary and the Widow Douglas is all told about in that book. ...</span></div>
+  </div>
+
+  <p>Timestamps, the speaker, the published engine's words; a stretch of silence marked rather than
+  filled; and a mark where the second engine heard two words the transcript lacks. The two words it
+  heard were <em>That book</em>, and the book reads <em>That book was made by Mr. Mark Twain</em>.
+  The published line is missing exactly those two, and the mark says where to listen.</p>
+</section>
+
+<section id="outputs" class="section">
+  <h2>What it produces, per recording</h2>
+  <p>Beside the recording, named by its stem:</p>
+  <dl class="outputs">
+    <div><dt><code>.docx</code> and <code>.txt</code></dt><dd>Timestamped and speaker-labelled, with a speaker summary at the top giving the word count assigned to each speaker; stretches of silence, music and background noise marked where nothing is said.</dd></div>
+    <div><dt><code>.srt</code></dt><dd>A subtitle file, so the transcript plays against the recording line by line in any player, with <code>[music]</code> and <code>[background noise]</code> cues where nothing is said.</dd></div>
+    <div><dt><code>.review.json</code></dt><dd>The review list, with a screen for working through it with the audio at each mark.</dd></div>
+    <div><dt><code>.run.json</code></dt><dd>The run record: engines and versions, settings, the file's digest, when it ran, how long it took, and any failure and why.</dd></div>
+  </dl>
+</section>
+
+<section id="application" class="section">
+  <h2>The application</h2>
+  <p>One window, in the manner of a media player. Drop recordings or folders in, choose a quality
+  level, press Transcribe; each recording plays at once, and the ones that have been transcribed
+  show their transcript following the audio.</p>
+
+  <figure class="still">
+    <img src="images/window-playing.png" alt="The window with a transcribed recording playing: the library on the left, the transcript following the playhead, the waveform timeline with the review marks" width="1280" height="820" loading="lazy">
+    <figcaption><strong>Reading with the audio.</strong> The line under the playhead is highlighted and
+    kept in view, the waveform timeline carries every review mark, and the chips at the top give
+    each speaker's share in words and seconds. <kbd>Space</kbd> plays or pauses, <kbd>J</kbd> and
+    <kbd>K</kbd> move between marks.</figcaption>
+  </figure>
+
+  <figure class="still">
+    <img src="images/verify.png" alt="The verification screen: a bar of the whole recording with every mark, the list of marks, the published transcript either side of the gap, and the words box" width="1120" height="740" loading="lazy">
+    <figcaption><strong>Verifying.</strong> A bar of the whole recording with every mark on it, the list
+    of marks, the published transcript either side of each gap, and a words box holding what the
+    second engine heard there as the starting point for what was actually said. Selecting a mark
+    plays its span. Three decisions per mark: nothing was said (<kbd>N</kbd>), keep the words once
+    they are right (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>), or reopen a mark decided in error
+    (<kbd>O</kbd>). Every decision is written at once into the transcript and its outputs, marked as
+    the listener's; the engine's words are never altered.</figcaption>
+  </figure>
+
+  <p>Four quality levels: Quick, Standard and Careful differ in the checking engine; Laptop keeps
+  the Standard engines but checks only where the published engine fell silent, for machines
+  without a graphics device. An NVIDIA device is used for the checking engine when present;
+  everything runs on the processor without one, more slowly. History lists every recording
+  transcribed on the machine, and Export writes the outputs again in chosen formats to a chosen
+  folder. The command line does the same work without the window.</p>
+</section>
+
+<section id="install" class="section">
+  <h2>Installing</h2>
+  <p>Three ways, from the least effort to the most. All three run offline once the models are in
+  place; none needs administrator rights.</p>
+  <ol class="ways">
+    <li>
+      <h3>The executables <span class="platform">Windows</span></h3>
+      <p>Download <code>twinscribe-win64.zip</code>, unzip it anywhere and double-click
+      <code>twinscribe\twinscribe-app.exe</code>; <code>twinscribe.exe</code> is the command line.
+      The folder carries every library, the CUDA runtime packages and the media decoder. On first
+      start the window offers to fetch the models of the Standard level (about 2.4 GB) into a
+      <code>models</code> folder beside the executables, recording every file's digest; after that
+      nothing in the program reaches the network. The executables are not signed, so Windows may
+      warn that they come from an unknown publisher.</p>
+    </li>
+    <li>
+      <h3>The portable folder <span class="platform">Windows</span></h3>
+      <p>Assembled from a checkout with the models inside, because it is larger than a release
+      asset may be. It holds its own interpreter, every library, the decoder, the models and a
+      <code>home</code> folder for settings and records, so nothing is installed and two copies
+      never share state.</p>
+    </li>
+    <li>
+      <h3>From source <span class="platform">Windows, Linux, macOS</span></h3>
+      <p>Python 3.11 or later, then:</p>
+<pre><code>pip install .[engines,app,ffmpeg]
+python -m twinscribe fetch-models
+python -m twinscribe app</code></pre>
+    </li>
+  </ol>
+</section>
+
+<section id="limits" class="section">
+  <h2>What this is not yet</h2>
+  <p>Early. The design is measured and the bench reproduces its accuracy tables on public corpora,
+  but speed is a property of the machine and the speaker labelling can split a voice it cannot
+  separate. A transcript is a draft until it has been verified against the recording; the tool
+  makes that verification targeted, it does not remove it.</p>
+  <p>Test material is public research audio under CC BY 4.0; no private recording of any kind is
+  used in development or testing.</p>
+</section>
+
+<section id="licences" class="section">
+  <h2>Components and licences</h2>
+  <p>Engines and models are open and run on the processor: faster-whisper and CTranslate2 (MIT),
+  Whisper weights (MIT), sherpa-onnx (Apache-2.0), NVIDIA Parakeet TDT 0.6B v2 and TitaNet
+  (CC BY 4.0), Silero VAD (MIT), pyannote segmentation-3.0 (MIT), the CED audio tagger
+  (Apache-2.0) with the AudioSet class labels (CC BY 4.0). The interface is PySide6 (LGPL-3.0).
+  Attributions are in <a href="https://github.com/Unified-Source/TwinScribe/blob/main/NOTICE">NOTICE</a>.</p>
+  <p>TwinScribe is released under the
+  <a href="https://github.com/Unified-Source/TwinScribe/blob/main/LICENSE">Apache License 2.0</a>.</p>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p class="wordmark small"><span class="twin">Twin</span><span class="scribe">Scribe</span></p>
+  <nav aria-label="Repository">
+    <a href="https://github.com/Unified-Source/TwinScribe">Repository</a>
+    <a href="https://github.com/Unified-Source/TwinScribe/releases">Releases</a>
+    <a href="https://github.com/Unified-Source/TwinScribe/blob/main/NOTICE">NOTICE</a>
+    <a href="https://github.com/Unified-Source/TwinScribe/blob/main/LICENSE">LICENSE</a>
+  </nav>
+  <p class="copyright">Copyright 2026 Uniflux Technology Inc. Apache License 2.0.</p>
+</footer>
+
+<script src="release.js"></script>
+</body>
+</html>

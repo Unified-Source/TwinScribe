@@ -4,7 +4,7 @@
 
 [![tests](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml/badge.svg)](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml)
 
-Windows build: [`twinscribe-win64.zip` on the Releases page](https://github.com/Unified-Source/TwinScribe/releases); the models are fetched on first start.
+Windows build: [`twinscribe-win64.zip` on the Releases page](https://github.com/Unified-Source/TwinScribe/releases); the models are fetched on first start. The site: [twinscribe.app](https://twinscribe.app).
 
 Offline transcription with speaker labels for long recordings, built for material that
 will be relied on.

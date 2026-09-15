@@ -51,7 +51,9 @@ twinscribe = "twinscribe.cli:main"
 twinscribe-app = "twinscribe.app.main:main"
 
 [project.urls]
-Homepage = "https://github.com/Unified-Source/twinscribe"
+Homepage = "https://twinscribe.app"
+Repository = "https://github.com/Unified-Source/TwinScribe"
+Releases = "https://github.com/Unified-Source/TwinScribe/releases"
 
 [tool.setuptools.packages.find]
 include = ["twinscribe*"]

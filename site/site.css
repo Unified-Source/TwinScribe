@@ -1,0 +1,450 @@
+/* The site's one stylesheet. The colours are the mark's: the banner's dark ground and bright
+   blue by default, the window's light palette when the reader's system asks for light. The
+   wordmark is text in the interface font, as the window's top bar sets it; timestamps, file
+   names and keys are in the machine's monospace face. Nothing is fetched from elsewhere. */
+
+:root {
+  color-scheme: dark;
+  --ground: #0a1020;
+  --surface: #0e1629;
+  --raised: #141c33;
+  --line: #243056;
+  --text: #f4f6fb;
+  --muted: #aab4cc;
+  --faint: #6f7ea3;
+  --accent: #2f7cf6;
+  --accent-ink: #07101f;
+  --link: #7fb0ff;
+  --published: #eef1f7;
+  --published-ink: #141c33;
+  --published-edge: transparent;
+  --checking: #2364db;
+  --checking-edge: #2f7cf6;
+  --checking-ink: #ffffff;
+  --dot: #b9c4dd;
+  --mark-fill: #2b2612;
+  --mark-ink: #e2b85a;
+  --scene-ink: #8d96a8;
+  --speaker: #7fb0ff;
+  --frame-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --body: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  --measure: 1040px;
+  --gutter: clamp(16px, 4vw, 40px);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --ground: #f2f4f9;
+    --surface: #ffffff;
+    --raised: #e6eaf3;
+    --line: #d5dae6;
+    --text: #141c33;
+    --muted: #4f5b7a;
+    --faint: #8d96a8;
+    --accent: #2b63c9;
+    --accent-ink: #ffffff;
+    --link: #2b63c9;
+    --published: #ffffff;
+    --published-ink: #141c33;
+    --published-edge: #d5dae6;
+    --checking: #2b63c9;
+    --checking-edge: #2f7cf6;
+    --checking-ink: #ffffff;
+    --dot: #6f7ea3;
+    --mark-fill: #fbf3e0;
+    --mark-ink: #7a5f14;
+    --scene-ink: #6f7a90;
+    --speaker: #2b63c9;
+    --frame-shadow: 0 24px 60px rgba(20, 28, 51, 0.18);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  padding-inline: var(--gutter);
+  padding-block: 0 4rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, button:focus-visible, video:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+code, kbd, pre, .at, .digest {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+code { font-size: 0.92em; }
+kbd {
+  font-size: 0.85em;
+  padding: 0.05em 0.45em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--text);
+}
+pre {
+  margin: 0.75rem 0 0;
+  padding: 0.9rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+pre code { font-size: 0.9rem; }
+
+h1, h2, h3 {
+  font-family: var(--display);
+  text-wrap: balance;
+  margin: 0;
+}
+h1 {
+  font-size: clamp(1.9rem, 1.2rem + 2.6vw, 3rem);
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+h2 {
+  font-size: clamp(1.5rem, 1.15rem + 1.2vw, 2rem);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+}
+h3 { font-size: 1.2rem; line-height: 1.3; font-weight: 700; }
+
+p { margin: 0; }
+p + p { margin-top: 1rem; }
+
+/* The wordmark, as the window's top bar sets it. */
+.wordmark {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.wordmark .twin { color: var(--text); }
+.wordmark .scribe { color: var(--accent); }
+
+/* The top bar. */
+.top {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding-block: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+  font-size: 1.25rem;
+}
+.brand .mark { width: 28px; height: 28px; border-radius: 6px; }
+.menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.4rem;
+  font-size: 0.95rem;
+}
+.menu a { color: var(--muted); text-decoration: none; }
+.menu a:hover, .menu a:focus-visible { color: var(--text); }
+.menu .external { color: var(--text); }
+
+/* The hero: the claim beside a real run. */
+.hero {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding-block: clamp(2.5rem, 6vw, 5rem) clamp(2rem, 5vw, 4rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: center;
+}
+@media (min-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 10fr) minmax(0, 11fr); gap: 3.5rem; }
+}
+.tagline {
+  font-family: var(--display);
+  font-size: 0.78rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1.1rem;
+}
+.hero h1 { max-width: 20ch; }
+.lead {
+  margin-top: 1.25rem;
+  max-width: 58ch;
+  font-size: 1.125rem;
+  color: var(--muted);
+}
+.actions {
+  margin-top: 1.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.button {
+  display: inline-block;
+  padding: 0.7rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--display);
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.2;
+}
+.button:hover { border-color: var(--muted); }
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.button.primary:hover { filter: brightness(1.08); }
+.detail {
+  margin-top: 0.9rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.digest {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.status {
+  margin-top: 1.25rem;
+  font-size: 0.92rem;
+  color: var(--faint);
+}
+
+.hero-run { margin: 0; min-width: 0; }
+.frame {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--frame-shadow);
+}
+.frame video { display: block; width: 100%; height: auto; max-width: 100%; }
+figcaption {
+  margin-top: 0.8rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+  max-width: 68ch;
+}
+
+/* Sections: one column of running text inside the measure. */
+.section {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+  border-top: 1px solid var(--line);
+}
+.section h2 { margin-bottom: 1rem; }
+.section > p { max-width: 68ch; }
+.section > p + p { margin-top: 1rem; }
+.section h2 + p { margin-top: 0; }
+
+/* The two engines, in the mark's geometry: two facing panels, the light one and the blue
+   one, with the dot between. The slant is painted on a layer under the text. */
+.engines {
+  margin: 2rem 0 1.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (min-width: 720px) {
+  .engines { grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr); gap: 0; }
+}
+.panel {
+  position: relative;
+  isolation: isolate;
+  padding: 1.6rem 1.7rem 1.7rem;
+  min-width: 0;
+}
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 14px;
+}
+.panel > * { position: relative; }
+.panel.published { color: var(--published-ink); }
+.panel.published::before { background: var(--published); box-shadow: inset 0 0 0 1px var(--published-edge); }
+.panel.checking { color: var(--checking-ink); }
+.panel.checking::before { background: var(--checking); box-shadow: inset 0 0 0 2px var(--checking-edge); }
+@media (min-width: 720px) {
+  .panel.published::before { transform: perspective(900px) rotateY(-6deg); transform-origin: left center; }
+  .panel.checking::before { transform: perspective(900px) rotateY(6deg); transform-origin: right center; }
+}
+.between { display: none; }
+@media (min-width: 720px) {
+  .between { display: flex; align-items: center; justify-content: center; }
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dot); }
+.role {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin-bottom: 0.5rem;
+}
+.panel h3 { font-size: 1.35rem; }
+.engine-name {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  margin: 0.35rem 0 0.9rem;
+  opacity: 0.85;
+}
+.panel p + p { margin-top: 0; }
+
+/* A review mark, as the window shows it: a strip between the lines. */
+.strip, .line.mark .text {
+  background: var(--mark-fill);
+  color: var(--mark-ink);
+  font-style: italic;
+}
+.strip {
+  margin: 0 0 1.5rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+/* The figures the design is measured by. */
+.figures {
+  margin: 1.5rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem 2rem;
+}
+.figures div { border-left: 2px solid var(--accent); padding-left: 1rem; }
+.figures dt { font-size: 0.85rem; color: var(--muted); }
+.figures dd {
+  margin: 0.15rem 0 0;
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.figures .of { font-size: 1rem; font-weight: 500; color: var(--muted); margin-left: 0.2em; }
+
+/* The transcript, laid out as the window lays it out. */
+.transcript {
+  margin: 1.5rem 0;
+  padding: 1.1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.97rem;
+  line-height: 1.55;
+}
+.line { display: grid; grid-template-columns: 4.6em minmax(0, 1fr); gap: 0 0.6em; padding-block: 0.28rem; }
+.line .at { color: var(--faint); font-size: 0.86em; padding-top: 0.15em; }
+.line .who { color: var(--speaker); font-weight: 600; }
+.line.scene .text { color: var(--scene-ink); font-style: italic; }
+.line.mark { grid-template-columns: minmax(0, 1fr); padding-block: 0.35rem; }
+.line.mark .text { padding: 0.25rem 0.7rem; border-radius: 4px; text-align: center; font-size: 0.93em; }
+
+/* Outputs and install ways: label and description, aligned from one to the next. */
+.outputs { margin: 1.25rem 0 0; display: grid; gap: 0.9rem; }
+.outputs div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.15rem 1.5rem; }
+@media (min-width: 640px) {
+  .outputs div { grid-template-columns: 12.5rem minmax(0, 1fr); }
+}
+.outputs dt { font-weight: 600; }
+.outputs dd { margin: 0; color: var(--muted); max-width: 68ch; }
+
+.still { margin: 2rem 0 0; }
+.still img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.still + p { margin-top: 2rem; }
+
+.ways {
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: way;
+  display: grid;
+  gap: 1.5rem;
+}
+.ways li {
+  counter-increment: way;
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0 0.5rem;
+}
+.ways li::before {
+  content: counter(way);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--accent);
+  line-height: 1.3;
+}
+.ways li > * { grid-column: 2; }
+.ways h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; }
+.ways p { max-width: 68ch; margin-top: 0.4rem; }
+.platform {
+  font-family: var(--body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* The foot. */
+.foot {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 2rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.foot .wordmark.small { font-size: 1.05rem; }
+.foot nav { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+.foot nav a { color: var(--muted); }
+.foot .copyright { flex-basis: 100%; color: var(--faint); }
