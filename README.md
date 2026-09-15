@@ -1,9 +1,6 @@
 # TwinScribe
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
-  <img src="docs/images/logo.png" height="104" alt="TwinScribe: two facing panels carrying waveforms, the published engine's dark and the checking engine's light. Two engines. A clearer record.">
-</picture>
+![TwinScribe: two facing panels carrying waveforms on a dark tile, the published engine's light and the checking engine's blue. Two engines. A clearer record.](docs/images/banner.png)
 
 [![tests](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml/badge.svg)](https://github.com/Unified-Source/TwinScribe/actions/workflows/tests.yml)
 
@@ -178,6 +175,11 @@ python -m twinscribe app <folder with the recordings>
   engine's echoes of the bordering words no longer raise a mark or fill the words box, so the
   hint names only what the transcript lacks. The measurements are in
   `docs/specs/review.notes.md`. Version 0.0.2.
+- **2026-09-15, the mark redrawn.** The two facing panels now sit on a dark tile with a thin
+  blue edge, the published engine's panel near white with navy bars and the checking engine's
+  a bright blue with white bars; the banner above and the square logo are painted from the
+  same drawing, flat, with the name in white and blue on the mark's own ground. The icon,
+  the stills and the live recording were made again with it.
 - **2026-09-15, the speaker clustering measured.** The threshold that decides when two voices
   are two speakers was the library's own default, and on every set in the lab it was the
   worst value measured: six labels on a two-speaker telephone call, over a hundred on a

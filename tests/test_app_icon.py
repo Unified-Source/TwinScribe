@@ -22,6 +22,7 @@ from twinscribe.app.app_icon import (  # noqa: E402
     ICON_SIZES,
     app_icon,
     app_image,
+    banner_image,
     brand_markup,
     ico_entries,
     logo_image,
@@ -74,21 +75,27 @@ def test_every_mark_has_every_size_and_transparent_corners(app: QApplication, co
 
 
 def test_panels_mark_geometry(app: QApplication) -> None:
-    light = app_image(64, False, CONCEPT_PANELS)
-    # The tile at (3, 32): full width at mid-height, light. The left panel spans x 8 to 30 at
-    # mid-height, so (12, 32) is navy; its middle bar is centred on x 19.2 and 2.2 wide, so
-    # column 19 is white. The right panel spans x 34 to 56, so (51, 32) is the soft blue and
-    # its middle bar, centred on x 44.8, makes column 44 white.
-    assert light.pixelColor(3, 32).lightness() > 200
-    assert bluish(light.pixelColor(12, 32)) and light.pixelColor(12, 32).lightness() < 120
-    assert light.pixelColor(19, 32).lightness() > 200
-    assert bluish(light.pixelColor(51, 32)) and 100 < light.pixelColor(51, 32).lightness() < 200
-    assert light.pixelColor(44, 32).lightness() > 200
-    dark = app_image(64, True, CONCEPT_PANELS)
-    assert dark.pixelColor(3, 32).lightness() < 80
-    assert bluish(dark.pixelColor(12, 32)) and dark.pixelColor(19, 32).lightness() > 200
+    image = app_image(64, False, CONCEPT_PANELS)
+    # The tile is dark navy; its edge, 1.6 wide along the border, makes column 1 blue at
+    # mid-height while (3, 32) is the tile. The left panel spans x 8 to 30 at mid-height, so
+    # (12, 32) is near white; its middle bar is centred on x 19.2 and 2.2 wide, so column 19 is
+    # navy. The right panel spans x 34 to 56, so (51, 32) is the bright blue and its middle
+    # bar, centred on x 44.8, makes column 44 white. The dot, 3.8 tall about y 32 on x 32, is
+    # the light grey at (32, 32); above it, (32, 20) is the tile between the panels.
+    assert image.pixelColor(3, 32).lightness() < 60
+    assert bluish(image.pixelColor(1, 32))
+    assert image.pixelColor(12, 32).lightness() > 200
+    assert image.pixelColor(19, 32).lightness() < 80
+    assert bluish(image.pixelColor(51, 32)) and 100 < image.pixelColor(51, 32).lightness() < 200
+    assert image.pixelColor(44, 32).lightness() > 200
+    assert greyish(image.pixelColor(32, 32)) and image.pixelColor(32, 32).lightness() > 180
+    assert image.pixelColor(32, 20).lightness() < 60
+    # The tile is dark in both palettes: the two renderings are the same image.
+    assert app_image(64, True, CONCEPT_PANELS).constBits() == image.constBits()
+    # Below 24 pixels there is no edge and no dot: the tile's own colour at its left edge.
     small = app_image(16, False, CONCEPT_PANELS)
     assert small.pixelColor(8, 8).alpha() == 255
+    assert small.pixelColor(0, 8).alpha() == 255 and not bluish(small.pixelColor(0, 8))
 
 
 def test_monogram_mark_geometry(app: QApplication) -> None:
@@ -122,13 +129,22 @@ def test_default_mark_and_wordmark(app: QApplication) -> None:
     assert "#e8e8ea" in dark and "#1e2f6b" not in dark
 
 
-def test_logo_image_has_the_mark_and_text(app: QApplication) -> None:
-    image = logo_image(80, dark=False, tagline="Two engines. A clearer record.")
-    assert image.height() == 80 and image.width() > 240
-    assert image.pixelColor(0, 0).alpha() == 0 and image.pixelColor(40, 40).alpha() == 255
-    # Text pixels to the right of the mark: some in the name's colours, none outside the image.
-    painted = [(x, y) for x in range(100, image.width()) for y in range(0, 80) if image.pixelColor(x, y).alpha() > 0]
-    assert painted
-    dark = logo_image(80, dark=True)
-    assert dark.width() < image.width() or dark.width() == image.width()
-    assert any(dark.pixelColor(x, y).lightness() > 200 for x, y in painted[:2000] if x < dark.width())
+def test_banner_and_lockup_hold_the_mark_and_the_name(app: QApplication) -> None:
+    banner = banner_image(600, 200)
+    assert banner.width() == 600 and banner.height() == 200
+    # Opaque on the dark ground to the corners.
+    assert banner.pixelColor(0, 0).alpha() == 255 and banner.pixelColor(0, 0).lightness() < 40
+    assert banner.pixelColor(599, 199).alpha() == 255 and banner.pixelColor(599, 199).lightness() < 40
+    # The mark is 88 pixels tall, centred vertically, so its middle row is 100: the row holds
+    # its blue edge and its light panel, and further right the name's white and blue.
+    row = [banner.pixelColor(x, 100) for x in range(600)]
+    assert any(bluish(c) for c in row) and any(c.lightness() > 200 for c in row)
+    lockup = logo_image(256)
+    assert lockup.width() == lockup.height() == 256
+    assert lockup.pixelColor(0, 0).alpha() == 255 and lockup.pixelColor(0, 0).lightness() < 40
+    # The mark, 107 pixels, sits from y 43 at the centre: its middle row shows a light panel and a blue one.
+    middle = [lockup.pixelColor(x, 96) for x in range(256)]
+    assert any(c.lightness() > 200 for c in middle) and any(bluish(c) for c in middle)
+    # The name and the tagline are painted below the mark, in white and in the blue.
+    below = [lockup.pixelColor(x, y) for x in range(256) for y in range(165, 256)]
+    assert any(c.lightness() > 200 for c in below) and any(bluish(c) for c in below)

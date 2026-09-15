@@ -46,3 +46,30 @@ Companion to `icon.md`. Records what was built, what was checked, and what was l
   renders as boxes there; `tools/make_icon.py` runs on the display platform for that reason,
   and the logo test checks for painted pixels rather than glyph shapes.
 - The verification screen's still was not retaken: it carries no mark.
+
+## The second drawing
+
+- The owner asked for a more minimalistic banner, logo and icon and gave two pictures of the
+  look wanted: the same two facing panels on a dark navy tile with a thin blue edge, the left
+  panel near white with navy bars, the right one a bright blue with white bars, a dot between
+  them, the name in white and blue on a dark ground, and the tagline in spaced capitals under
+  it; one as a wide banner, one as a square lockup. The pictures carried gradients, a glow and
+  soft shadows. They were not put into the repository: the program paints its marks, the icon
+  file needs clean drawings at 16 and 24 pixels, and a flat drawing is the minimal version
+  asked for; so the panels mark was redrawn from them in the same geometry with the new
+  colours, and the lockup and the banner are painted from it.
+- The tile is now dark in both palettes. The earlier light tile in the light palette made two
+  marks of one program; the dark tile carries its own ground on the light window, the task
+  bar and the page, and one banner file serves both colour schemes of the front page, which
+  drops the light and dark pair of logo files.
+- The mark's blue is no longer the palette's accent but the pictures' brighter blue; the
+  primary button and the selection keep the accent. The window's top-bar wordmark keeps its
+  text colours, since it sits on the window's own ground.
+- The wordmark's family for the rendered files is named in the module and was chosen on a
+  sheet of the banner in six families the rendering machine offers; a machine without the
+  family renders its bold sans-serif in its place. The sheet showed the mark at 256, 64, 48,
+  32, 24 and 16 pixels on a light and a dark ground, where the edge and the dot are left out
+  below 24 pixels so the small sizes stay two blocks and a gap.
+- Rendered again: the icon file, the icon image, the lockup (1024 pixels square) and the
+  banner (1600 by 533) in place of the two logo files; the README's header shows the banner.
+  The window stills and the live recording were taken again with the mark in the top bar.
