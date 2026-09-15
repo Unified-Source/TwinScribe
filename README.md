@@ -77,7 +77,10 @@ they are decoded; they can be read without being pulled to the newest line, clic
 the playhead, and played from. The number of speakers can be given when it is known; by
 default the count comes from clustering, so a speaker the models cannot separate is missing
 from the labels, where the word counts show it, rather than hidden inside another; a speaker
-the clustering split in two is merged by renaming one to the other's name. A recording can be
+the clustering split in two is merged by renaming one to the other's name. The clustering's
+threshold is chosen for the recording: the default suits two or a few voices, and a higher
+value keeps each voice together on a long recording or a meeting with several voices; labels
+holding under three seconds of speech are folded into the nearest voice. A recording can be
 transcribed again, at another level or with a speaker count, from its header or the library's
 right-click menu; from the command line, `run` skips what is already transcribed unless told
 otherwise. History lists every recording transcribed on the machine, and Export writes the
@@ -88,7 +91,7 @@ asked: the Get models dialog the window offers while no quality level is complet
 
 ```
 python -m twinscribe app [recordings or folders]
-python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto] [--speakers N]
+python -m twinscribe run <recordings or folders> [--quality standard] [--out FOLDER] [--device auto] [--speakers N] [--threshold 0.9]
 python -m twinscribe check [--verify]
 python -m twinscribe fetch-models [--level standard careful] [--root FOLDER]
 python -m twinscribe export <transcript.json>
@@ -165,6 +168,17 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-15, the speaker clustering measured.** The threshold that decides when two voices
+  are two speakers was the library's own default, and on every set in the lab it was the
+  worst value measured: six labels on a two-speaker telephone call, over a hundred on a
+  four-speaker meeting, dozens on a two-hour two-voice recording, a one-reader chapter split in
+  two. The default is now 0.9, the value with the lowest error on the bench's telephone calls,
+  below the error with the count fixed at two; a second value, 1.2, keeps each voice together on
+  a long recording or a meeting with several voices, and is offered as a Recording choice in
+  the window and as `--threshold` on the command line. After the clustering, labels holding
+  under three seconds of speech are folded into the nearest voice, which removes the fragments
+  left at every threshold without hiding anyone who said a few sentences. The measurements are
+  in `docs/specs/batch_app.notes.md`.
 - **2026-09-14, a review of the application in use.** Thirteen independent readings of the
   window, the screen, the outputs and the command line, checked against the code and by
   driving the window, found the defects this change answers. Two recordings of one name sent

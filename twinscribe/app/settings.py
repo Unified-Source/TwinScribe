@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from twinscribe.engines.diarize import LONG_RECORDING_THRESHOLD
 from twinscribe.paths import app_home
 from twinscribe.runrecord import write_json_atomic
 
@@ -35,6 +36,9 @@ class AppSettings:
     threads: int = 0
     acceleration: str = "auto"
     speakers: int = 0
+    # The clustering distance threshold the window offers: zero for the level's value, made
+    # for two or a few voices, or the long value for a long recording or a meeting.
+    threshold: float = 0.0
     follow: bool = True
     volume: float = 0.8
     rate: float = 1.0
@@ -60,6 +64,11 @@ class AppSettings:
     def speakers_or_none(self) -> int | None:
         """The speaker count when one is set; None (the default) clusters by threshold."""
         return self.speakers if self.speakers > 0 else None
+
+    @property
+    def threshold_or_none(self) -> float | None:
+        """The clustering threshold when one is chosen; None (the default) takes the level's."""
+        return self.threshold if self.threshold > 0.0 else None
 
 
 def settings_path() -> Path:
@@ -105,6 +114,8 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> AppSettings:
     if settings.acceleration not in ACCELERATIONS:
         settings.acceleration = "auto"
     settings.speakers = min(MAX_SPEAKERS, max(0, settings.speakers))
+    if settings.threshold not in (0.0, LONG_RECORDING_THRESHOLD):
+        settings.threshold = 0.0
     settings.volume = min(1.0, max(0.0, settings.volume))
     settings.audio_device = str(getattr(settings, "audio_device", "") or "")
     settings.rate = min(2.0, max(0.5, settings.rate))

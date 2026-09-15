@@ -575,3 +575,98 @@ def test_speech_within_keeps_the_speech_inside_the_windows_and_merges():
     assert whisper_ct2.speech_within([(0.0, 5.0), (5.0, 8.0)], [(4.0, 6.0)]) == [(4.0, 6.0)]
     assert whisper_ct2.speech_within([(0.0, 5.0)], [(6.0, 7.0)]) == []
     assert whisper_ct2.speech_within([], [(0.0, 1.0)]) == [] and whisper_ct2.speech_within([(0.0, 1.0)], []) == []
+
+
+# ----- folding small speaker labels ----------------------------------------------------------
+
+
+def _sign_embed(piece):
+    """A stand-in for the voice model: the mean of the samples and a constant, so that a voice
+    of positive samples and a voice of negative samples sit at right angles."""
+    import numpy as np
+
+    return np.array([float(np.mean(piece)), 1.0], dtype=np.float32)
+
+
+def _two_voices(rate: int = 100):
+    """Sixty seconds at a small rate: one voice as +1 for 20 s, the other as -1 for 20 s, then a
+    2 s fragment of the first and a 3 s fragment of the second, silence elsewhere."""
+    import numpy as np
+
+    samples = np.zeros(60 * rate, dtype=np.float32)
+    samples[0: 20 * rate] = 1.0
+    samples[20 * rate: 40 * rate] = -1.0
+    samples[40 * rate: 42 * rate] = 1.0
+    samples[42 * rate: 45 * rate] = -1.0
+    return samples
+
+
+def test_fold_small_labels_folds_each_small_label_into_the_nearest_voice():
+    rate = 100
+    turns = [
+        SpeakerTurn(0.0, 20.0, "speaker_00"), SpeakerTurn(20.0, 40.0, "speaker_01"),
+        SpeakerTurn(40.0, 42.0, "speaker_02"), SpeakerTurn(42.0, 45.0, "speaker_03"),
+    ]
+    folded, count = diarize.fold_small_labels(_two_voices(rate), turns, _sign_embed, 10.0, sample_rate=rate)
+    assert count == 2
+    assert [(t.start, t.end, t.label) for t in folded] == [
+        (0.0, 20.0, "speaker_00"), (20.0, 40.0, "speaker_01"), (40.0, 42.0, "speaker_00"), (42.0, 45.0, "speaker_01"),
+    ]
+    assert diarize.seconds_per_label(folded) == {"speaker_00": 22.0, "speaker_01": 23.0}
+
+
+def test_fold_small_labels_renumbers_by_first_appearance():
+    import numpy as np
+
+    rate = 100
+    samples = np.zeros(50 * rate, dtype=np.float32)
+    samples[0: 3 * rate] = -1.0            # a fragment of the second voice opens the recording
+    samples[3 * rate: 23 * rate] = 1.0
+    samples[23 * rate: 43 * rate] = -1.0
+    turns = [SpeakerTurn(0.0, 3.0, "speaker_00"), SpeakerTurn(3.0, 23.0, "speaker_01"), SpeakerTurn(23.0, 43.0, "speaker_02")]
+    folded, count = diarize.fold_small_labels(samples, turns, _sign_embed, 10.0, sample_rate=rate)
+    assert count == 1
+    assert [(t.start, t.label) for t in folded] == [(0.0, "speaker_00"), (3.0, "speaker_01"), (23.0, "speaker_00")]
+
+
+def test_fold_small_labels_leaves_the_turns_alone_when_nothing_qualifies():
+    rate = 100
+    samples = _two_voices(rate)
+    turns = [SpeakerTurn(0.0, 20.0, "speaker_00"), SpeakerTurn(20.0, 40.0, "speaker_01"), SpeakerTurn(40.0, 42.0, "speaker_02")]
+    assert diarize.fold_small_labels(samples, turns, _sign_embed, 0.0, sample_rate=rate) == (tuple(turns), 0)
+    assert diarize.fold_small_labels(samples, turns, _sign_embed, 100.0, sample_rate=rate) == (tuple(turns), 0)
+    assert diarize.fold_small_labels(samples, turns, _sign_embed, 1.0, sample_rate=rate) == (tuple(turns), 0)
+    # A small label whose turns lie beyond the audio has no voice to compare and keeps a label.
+    beyond = turns + [SpeakerTurn(100.0, 101.0, "speaker_03")]
+    folded, count = diarize.fold_small_labels(samples, beyond, _sign_embed, 10.0, sample_rate=rate)
+    assert count == 1 and [t.label for t in folded] == ["speaker_00", "speaker_01", "speaker_00", "speaker_02"]
+    with pytest.raises(ValueError):
+        diarize.fold_small_labels(samples, turns, _sign_embed, -1.0, sample_rate=rate)
+
+
+def test_label_embedding_takes_the_longest_turns_up_to_the_budget_and_normalises():
+    import numpy as np
+
+    rate = 100
+    samples = np.ones(40 * rate, dtype=np.float32)
+    seen: list[int] = []
+
+    def embed(piece):
+        seen.append(len(piece))
+        return np.array([3.0, 4.0])
+
+    turns = [SpeakerTurn(0.0, 5.0, "a"), SpeakerTurn(10.0, 30.0, "a")]
+    vector = diarize.label_embedding(samples, turns, embed, sample_rate=rate, max_seconds=8.0)
+    assert seen == [800]                        # the twenty-second turn first, cut at the budget
+    assert vector is not None and np.allclose(vector, [0.6, 0.8])
+    seen.clear()
+    assert diarize.label_embedding(samples, turns, embed, sample_rate=rate, max_seconds=30.0) is not None
+    assert seen == [2500]                       # the long turn whole, then the short one
+    assert diarize.label_embedding(samples, [], embed, sample_rate=rate) is None
+    assert diarize.label_embedding(samples, turns, lambda piece: np.zeros(2), sample_rate=rate) is None
+
+
+def test_renumber_orders_by_time_and_first_appearance():
+    turns = [SpeakerTurn(5.0, 6.0, "speaker_03"), SpeakerTurn(0.0, 1.0, "speaker_07"), SpeakerTurn(2.0, 3.0, "speaker_03")]
+    assert [(t.start, t.label) for t in diarize.renumber(turns)] == [(0.0, "speaker_00"), (2.0, "speaker_01"), (5.0, "speaker_01")]
+    assert diarize.renumber([]) == ()

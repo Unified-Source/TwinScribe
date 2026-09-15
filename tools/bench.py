@@ -47,7 +47,10 @@ from twinscribe.runrecord import machine_facts, utc_now, write_json_atomic  # no
 RESULTS_SCHEMA = "twinscribe.bench.v1"
 PUBLISHER_PRESET = "vad"
 DETECTOR_PRESET = "production"
-DIARIZATION_THRESHOLD = 0.5
+from twinscribe.engines.diarize import DEFAULT_THRESHOLD  # noqa: E402
+
+# The speaker variant runs at the default of the tool, which the measurements set.
+DIARIZATION_THRESHOLD = DEFAULT_THRESHOLD
 
 VARIANT_PARAKEET = "parakeet"
 VARIANT_TURBO = "whisper-turbo"

@@ -15,10 +15,13 @@ from twinscribe.outputs.transcript_doc import write_document
 
 def test_parser_commands(tmp_path: Path) -> None:
     parser = cli.build_parser()
-    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse", "--device", "cuda", "--speakers", "3"])
+    run = parser.parse_args(["run", str(tmp_path), "--quality", "quick", "--threads", "2", "--out", "o", "--no-recurse", "--device", "cuda", "--speakers", "3", "--threshold", "1.2"])
     assert run.command == "run" and run.quality == "quick" and run.threads == 2 and run.out == Path("o")
-    assert run.no_recurse is True and run.device == "cuda" and run.speakers == 3
+    assert run.no_recurse is True and run.device == "cuda" and run.speakers == 3 and run.threshold == 1.2
     assert parser.parse_args(["run", "x"]).device == "auto" and parser.parse_args(["run", "x"]).speakers is None
+    assert parser.parse_args(["run", "x"]).threshold is None
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "x", "--threshold", "0"])
     with pytest.raises(SystemExit):
         parser.parse_args(["run", "x", "--device", "npu"])
     check = parser.parse_args(["check", "--verify"])
@@ -182,6 +185,29 @@ def test_run_skips_transcribed_recordings_unless_asked(tmp_path: Path, monkeypat
     monkeypatch.setattr(cli, "current_plan", lambda *args, **kwargs: make_plan_for())
     assert cli.main(["run", str(folder), "--again"]) == 0
     assert "done   " in capsys.readouterr().out
+
+
+def test_run_passes_the_threshold_to_the_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    monkeypatch.setenv(MODELS_ENV, str(tmp_path / "models"))
+    monkeypatch.setenv("TWINSCRIBE_HOME", str(tmp_path / "home"))
+    make_models(tmp_path / "models")
+    folder = tmp_path / "media"
+    folder.mkdir()
+    source = audio.synthetic_wav(folder / "a.wav", 1.0)
+    seen: dict[str, dict] = {}
+    monkeypatch.setattr(pipeline, "default_engines", lambda: make_engines(kwargs_seen=seen))
+    monkeypatch.setattr(pipeline, "current_plan", lambda *args, **kwargs: make_plan_for())
+    monkeypatch.setattr(cli, "current_plan", lambda *args, **kwargs: make_plan_for())
+    assert cli.main(["run", str(folder), "--threshold", "1.2"]) == 0
+    out = capsys.readouterr().out
+    assert "speakers: by clustering at threshold 1.2" in out and "done   " in out
+    assert seen["diarizer"]["threshold"] == 1.2
+    record = json.loads(pipeline.output_paths(source).run.read_text(encoding="utf-8"))
+    assert record["settings"]["diarization_threshold"] == 1.2
+    assert cli.main(["run", str(folder), "--again"]) == 0
+    assert "speakers: by clustering at threshold 0.9" in capsys.readouterr().out and seen["diarizer"]["threshold"] == 0.9
 
 
 def test_threads_must_be_positive_and_an_unknown_model_key_is_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

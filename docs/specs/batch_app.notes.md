@@ -342,3 +342,54 @@ recall and the Jaccard error rate can be scored.
   merge action of its own on the chips (renaming to the other name is the way); adding a
   recording from History with its outputs elsewhere than the current setting looks for; the
   first-run fetch does not check free disk space.
+
+## The clustering threshold and the fold of small labels
+
+The clustering threshold of the speaker stage, 0.5 since the first delivery and the library's
+own default, was measured on 2026-09-15 on every set the lab holds: the diarizer alone at 0.5,
+0.6, 0.7, 0.8, 0.9, 1.0, 1.2 and 1.5, scored with the bench's own diarization error rate
+(collar 0.25 s, labels beyond six folded for the mapping; `bench.notes.md`). The sets: the
+bench's 24 two-speaker telephone calls (51 s each on average), its four-speaker meeting on the
+headset mix and the array microphone (21 min), a one-reader audiobook chapter (654 s, no
+reference; the count is known) and a two-hour two-voice recording held in the lab (no
+reference; a run with the count fixed at two as the comparison). The diarizer is
+deterministic: the 0.5 passes reproduced the bench of 2026-09-09 label for label.
+
+- Telephone calls, pooled DER in per cent: 36.3 at 0.5, 24.1 at 0.6, 17.6 at 0.7, 11.4 at 0.8,
+  11.2 at 0.9, 12.1 at 1.0, 34.6 at 1.2, 41.0 at 1.5; the count fixed at two gives 13.8.
+  Labels per call 6.2 at 0.5 and 2.8 at 0.9; calls at exactly two labels none of 24 at 0.5,
+  12 at 0.9, 15 at 1.0; two calls merge into one voice at 1.0, nineteen at 1.2.
+- Meeting: 60.6 at 0.5, 35.0 at 0.9, 28.3 at 1.0, 26.0 at 1.2 (five and six labels), 63.2 at
+  1.5 (one label); the count fixed at four gives 27.1. Labels 100 and 110 at 0.5, 38 and 39
+  at 0.9, 24 and 25 at 1.0.
+- The two-voice recording: up to 0.8 the two largest labels are pieces of one voice; at 0.9
+  they are the two voices for the first time, with 15 labels carrying words and 87 per cent
+  of the words agreeing with the fixed-count run after the best one-to-one mapping of labels;
+  1.2 equals the fixed-count run; 1.5 merges the two voices.
+- The one-reader chapter: 5 labels at 0.5, 2 at 0.9 and 1.0 (three words in the second), 1
+  at 1.2.
+
+So 0.5 is the worst value on every set, and no single value is best everywhere: two similar
+voices on a short call begin to merge from 1.0, while a long recording and a four-party
+meeting settle only at 1.2. The default is 0.9, the best measured value on the labelled
+two-speaker set and below the fixed count there; 1.2 is offered for a long recording or a
+meeting (the window's Recording control, the command line's `--threshold`), and the bench's
+speaker variant runs at the default, so its tables from before this change are at 0.5.
+
+At every threshold short of merging voices the clustering leaves a tail of labels holding a
+second or two, a few dozen on a long recording. They are now folded into the large label
+whose voice is nearest, one embedding per label from the speaker embedding model over at most
+thirty seconds of its longest turns; the minimum size was measured on the saved turns of the
+sweep at 2 to 60 s. On the calls at 0.9 the pooled DER goes from 11.2 with no fold to 9.5 at
+three seconds (22 of 24 calls at exactly two labels, no speaker lost), 9.4 at four seconds
+with one caller folded away, 10.3 at five, 18.2 at ten and 21.4 at fifteen: a caller's
+labelled speech on a short call can be four seconds long, since the diarizer's turns run
+shorter than the speech they cover, so the floor is three seconds. At that floor the meeting
+keeps its error and halves its labels (38 to 20 at 0.9), the two-voice recording goes from 34
+labels to 12 at 0.9 and keeps its five at 1.2 (three with words), and the chapter keeps a
+second label of three words, which a four-second floor would fold along with the caller.
+Larger floors help long recordings (five labels at fifteen seconds on the two-voice
+recording) at the price of hiding a participant who spoke little, which the design's rule
+forbids; the floor is therefore small and the threshold does the rest. The fold is skipped
+when a count is given, and it costs well under a second on a call and a few seconds on a long
+recording.

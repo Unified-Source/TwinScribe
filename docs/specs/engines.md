@@ -83,11 +83,21 @@ import; keep that in one helper that is a no-op elsewhere.
 
 ## 5. `twinscribe/engines/diarize.py`
 
-`diarize(audio_path, segmentation_model, embedding_model, threads=None, num_speakers=None, threshold=0.5) -> Diarization`
+`diarize(audio_path, segmentation_model, embedding_model, threads=None, num_speakers=None, threshold=DEFAULT_THRESHOLD, provider="cpu", fold_min_s=FOLD_MIN_S) -> Diarization`
 using `sherpa_onnx.OfflineSpeakerDiarization`. Clustering by threshold is the default;
 `num_speakers` is an explicit opt-in, and the docstring says why forcing the count can hide a
-failure. Return segments `(start, end, label)`, seconds per label, load and diarize timings,
-and versions.
+failure. The threshold is the clustering distance at which two voices stay two speakers:
+`DEFAULT_THRESHOLD` (0.9) was measured best on the bench's two-speaker telephone calls, and
+`LONG_RECORDING_THRESHOLD` (1.2) keeps each voice together on a long recording or a meeting
+with several voices, where two similar voices on a short call merge; the measurements are in
+`batch_app.notes.md`. When clustering by threshold, `fold_small_labels` then folds every label
+holding less than `fold_min_s` of speech (`FOLD_MIN_S`, three seconds) into the large label
+whose voice is nearest, by the cosine similarity of one embedding per label computed with
+`sherpa_onnx.SpeakerEmbeddingExtractor` over at most `FOLD_EMBED_MAX_S` of the label's longest
+turns, and renumbers the labels by first appearance; a given count skips the fold. Return
+segments `(start, end, label)`, seconds per label, load and diarize timings (the fold counted
+in the latter), versions and the settings: the threshold, the labels found before and after
+the fold, the count folded and the fold's time.
 
 ## 5a. `twinscribe/engines/tagging.py`
 

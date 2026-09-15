@@ -117,3 +117,12 @@ def test_detector_falls_back_to_the_onnx_export_without_ctranslate2(tmp_path: Pa
     assert str(root / KEY_WHISPER_TURBO_ONNX) in str(excinfo.value)
     assert resolve_detector(profile_for("standard"), store, onnx_only) is None
     assert detector_candidates(profile_for("standard"), full) == [KEY_WHISPER_TURBO, KEY_WHISPER_TURBO_ONNX]
+
+
+def test_the_speaker_threshold_is_the_measured_default_on_every_level() -> None:
+    from twinscribe.engines.diarize import DEFAULT_THRESHOLD, FOLD_MIN_S, LONG_RECORDING_THRESHOLD
+    from twinscribe.profiles import PROFILES
+
+    assert profile_for("standard").diarization_threshold == DEFAULT_THRESHOLD == 0.9
+    assert all(level.diarization_threshold == DEFAULT_THRESHOLD for level in PROFILES)
+    assert LONG_RECORDING_THRESHOLD == 1.2 > DEFAULT_THRESHOLD and FOLD_MIN_S > 0.0

@@ -217,13 +217,13 @@ def test_detector_placement_follows_the_plan(recording: Path, models, tmp_path: 
     seen: dict[str, dict] = {}
     process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
     assert seen["detector"] == {"device": "cpu", "compute_type": "int8", "device_index": 0, "clips": None}
-    assert seen["publisher"] == {"provider": "cpu"} and seen["diarizer"] == {"provider": "cpu"}
+    assert seen["publisher"] == {"provider": "cpu"} and seen["diarizer"] == {"provider": "cpu", "threshold": 0.9}
 
     gpu_plan = make_plan_for(cuda=True, sherpa_cuda=True)
     seen.clear()
     process_file(job_for(recording, models, tmp_path, plan=gpu_plan), engines=make_engines(kwargs_seen=seen))
     assert seen["detector"] == {"device": "cuda", "compute_type": "float16", "device_index": 0, "clips": None}
-    assert seen["publisher"] == {"provider": "cuda"} and seen["diarizer"] == {"provider": "cuda"}
+    assert seen["publisher"] == {"provider": "cuda"} and seen["diarizer"] == {"provider": "cuda", "threshold": 0.9}
 
 
 def test_speaker_count_is_an_explicit_opt_in(recording: Path, models, tmp_path: Path) -> None:
@@ -232,7 +232,7 @@ def test_speaker_count_is_an_explicit_opt_in(recording: Path, models, tmp_path: 
     assert "num_speakers" not in seen["diarizer"]
     assert result.run_record["settings"]["speakers"] is None
     assert result.document["engines"]["diarization"]["settings"]["num_speakers"] is None
-    assert "clustering threshold 0.5" in result.outputs.text.read_text(encoding="utf-8")
+    assert "clustering threshold 0.9" in result.outputs.text.read_text(encoding="utf-8")
     assert result.run_record["settings"]["labelling"] == {"smoothed_words": 0, "min_run_words": 2, "min_run_s": 0.6}
 
     seen.clear()
@@ -241,6 +241,26 @@ def test_speaker_count_is_an_explicit_opt_in(recording: Path, models, tmp_path: 
     assert fixed.run_record["settings"]["speakers"] == 2
     assert fixed.document["engines"]["diarization"]["settings"]["num_speakers"] == 2
     assert "speaker count fixed at 2" in fixed.outputs.text.read_text(encoding="utf-8")
+
+
+def test_a_threshold_given_for_the_job_reaches_the_diarizer_and_the_records(recording: Path, models, tmp_path: Path) -> None:
+    seen: dict[str, dict] = {}
+    by_default = process_file(job_for(recording, models, tmp_path), engines=make_engines(kwargs_seen=seen))
+    assert seen["diarizer"]["threshold"] == 0.9 and by_default.run_record["settings"]["diarization_threshold"] == 0.9
+    assert by_default.run_record["engines"]["diarization"]["preset"] == "threshold 0.9"
+
+    seen.clear()
+    result = process_file(job_for(recording, models, tmp_path, threshold=1.2), engines=make_engines(kwargs_seen=seen))
+    assert seen["diarizer"]["threshold"] == 1.2 and "num_speakers" not in seen["diarizer"]
+    assert result.run_record["settings"]["diarization_threshold"] == 1.2
+    assert result.run_record["engines"]["diarization"]["preset"] == "threshold 1.2"
+    assert result.document["engines"]["diarization"]["settings"]["threshold"] == 1.2
+    assert "clustering threshold 1.2" in result.outputs.text.read_text(encoding="utf-8")
+
+    batch = run_batch([recording], profile_for("standard"), models, engines=make_engines(kwargs_seen=seen),
+                      record_dir=tmp_path / "records", plan=make_plan_for(), threshold=1.2)
+    assert seen["diarizer"]["threshold"] == 1.2
+    assert json.loads(batch.record_path.read_text(encoding="utf-8"))["threshold"] == 1.2
 
 
 def test_flicker_inside_an_utterance_is_smoothed(recording: Path, models, tmp_path: Path) -> None:

@@ -59,6 +59,7 @@ from twinscribe.app.app_icon import app_icon, app_pixmap, brand_markup
 from twinscribe.app.export_dialog import ExportDialog
 from twinscribe.app.history_dialog import HistoryDialog
 from twinscribe.app.models_dialog import ModelsDialog
+from twinscribe.engines.diarize import DEFAULT_THRESHOLD, LONG_RECORDING_THRESHOLD
 from twinscribe.app.icons import make_icon
 from twinscribe.app.job_status import JobStatusCard
 from twinscribe.app.library import STATUS_DONE, STATUS_FAILED, STATUS_QUEUED, STATUS_RUNNING, LibraryModel, LibraryView, MediaItem
@@ -111,6 +112,12 @@ ACCELERATION_TITLES: dict[str, str] = {"auto": "Automatic", "cpu": "Processor on
 SPEAKERS_TIP = (
     "How many speakers to label. Auto lets the clustering decide, so a speaker the models cannot "
     "separate is missing rather than hidden inside another label; set a number only when it is known."
+)
+THRESHOLD_TIP = (
+    "How far apart two voices must be for the clustering to keep them as two speakers. "
+    f"{DEFAULT_THRESHOLD:g} was measured best on two-speaker telephone calls; a long recording, or a "
+    f"meeting with several voices, keeps each voice together only at {LONG_RECORDING_THRESHOLD:g}, where "
+    "two similar voices on a short call would merge into one."
 )
 
 APP_TITLE = "TwinScribe"
@@ -465,6 +472,18 @@ class MainWindow(QMainWindow):
         top_layout.addSpacing(6)
         top_layout.addWidget(speakers_label)
         top_layout.addWidget(self.speakers_box)
+
+        recording_label = QLabel("Recording", top)
+        recording_label.setObjectName("muted")
+        self.threshold_box = QComboBox(top)
+        self.threshold_box.addItem(f"Two or a few voices ({DEFAULT_THRESHOLD:g})", 0.0)
+        self.threshold_box.addItem(f"Long recording or meeting ({LONG_RECORDING_THRESHOLD:g})", LONG_RECORDING_THRESHOLD)
+        self.threshold_box.setCurrentIndex(max(0, self.threshold_box.findData(float(self.settings.threshold))))
+        self.threshold_box.setToolTip(THRESHOLD_TIP)
+        self.threshold_box.currentIndexChanged.connect(self._on_threshold_changed)
+        top_layout.addSpacing(6)
+        top_layout.addWidget(recording_label)
+        top_layout.addWidget(self.threshold_box)
 
         self.models_button = QPushButton("Get models", top)
         self.models_button.setObjectName("primary")
@@ -902,6 +921,8 @@ class MainWindow(QMainWindow):
             diarization_settings = ((doc.get("engines") or {}).get("diarization") or {}).get("settings") or {}
             if diarization_settings.get("num_speakers"):
                 parts.append(f"speaker count fixed at {int(diarization_settings['num_speakers'])}")
+            elif diarization_settings.get("threshold") is not None and float(diarization_settings["threshold"]) != DEFAULT_THRESHOLD:
+                parts.append(f"clustering threshold {float(diarization_settings['threshold']):g}")
             try:
                 parts.append(profile_for(str(doc.get("profile", ""))).title)
             except KeyError:
@@ -1228,6 +1249,10 @@ class MainWindow(QMainWindow):
         value = self.speakers_box.itemData(index)
         self.settings.speakers = int(value) if value is not None else 0
 
+    def _on_threshold_changed(self, index: int) -> None:
+        value = self.threshold_box.itemData(index)
+        self.settings.threshold = float(value) if value is not None else 0.0
+
     def selected_profile(self) -> Profile | None:
         name = self.quality_box.currentData()
         if not name:
@@ -1312,6 +1337,7 @@ class MainWindow(QMainWindow):
             parent=self,
             plan=plan,
             speakers=self.settings.speakers_or_none,
+            threshold=self.settings.threshold_or_none,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.partial.connect(self._on_partial)
@@ -1329,11 +1355,18 @@ class MainWindow(QMainWindow):
         self.transcribe_button.setEnabled(False)
         self.quality_box.setEnabled(False)
         self.speakers_box.setEnabled(False)
+        self.threshold_box.setEnabled(False)
         self.batch_label.setText(f"0 of {self._batch_total}")
         where = placement.describe() if placement is not None else "processor"
         backend = "CTranslate2" if selection.backend == BACKEND_CT2 else "ONNX"
         count = self.settings.speakers_or_none
-        speakers_note = f"; speaker count fixed at {count}" if count is not None else ""
+        threshold = self.settings.threshold_or_none
+        if count is not None:
+            speakers_note = f"; speaker count fixed at {count}"
+        elif threshold is not None:
+            speakers_note = f"; clustering threshold {threshold:g}"
+        else:
+            speakers_note = ""
         # The publisher's placement is on the job card; the status line stays short enough to
         # sit beside the batch label.
         self.set_status(
@@ -1398,7 +1431,13 @@ class MainWindow(QMainWindow):
             profile = self.selected_profile()
             level = profile.title if profile is not None else "the chosen"
             count = self.settings.speakers_or_none
-            speakers = f"the speaker count fixed at {count}" if count is not None else "the speakers found by clustering"
+            threshold = self.settings.threshold_or_none
+            if count is not None:
+                speakers = f"the speaker count fixed at {count}"
+            elif threshold is not None:
+                speakers = f"the speakers found by clustering at threshold {threshold:g}"
+            else:
+                speakers = "the speakers found by clustering"
             answer = QMessageBox.question(
                 self,
                 "Transcribe again",
@@ -1519,6 +1558,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(True)
         self.quality_box.setEnabled(True)
         self.speakers_box.setEnabled(True)
+        self.threshold_box.setEnabled(True)
         self.batch_label.setText("")
         text = f"Batch finished: {completed} done"
         if failures:

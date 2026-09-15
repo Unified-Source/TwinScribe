@@ -199,11 +199,11 @@ def make_engines(
             extras=result.extras, settings={"provider": kwargs.get("provider", "cpu"), "word_timing": "segment"},
         )
 
-    def diarizer(path, segmentation, embedding, threads=None, threshold=0.5, **kwargs):
+    def diarizer(path, segmentation, embedding, threads=None, **kwargs):
         note("diarizer", kwargs)
         if fail_diarizer:
             raise RuntimeError("embedding model rejected")
-        return diarization(threshold=threshold, num_speakers=kwargs.get("num_speakers"))
+        return diarization(threshold=kwargs.get("threshold", 0.5), num_speakers=kwargs.get("num_speakers"))
 
     def tagger(path, model_dir, regions, threads=None, provider="cpu", top_k=8, progress=None, **kwargs):
         note("tagger", kwargs)

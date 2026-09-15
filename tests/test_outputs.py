@@ -138,6 +138,16 @@ def test_plain_text_names_a_fixed_speaker_count() -> None:
     assert not any("clustering threshold" in line for line in header)
 
 
+def test_plain_text_names_the_small_labels_folded() -> None:
+    doc = make_document()
+    doc["engines"]["diarization"]["settings"]["labels_folded"] = 2
+    assert any("clustering threshold 0.5, 2 small labels folded into the nearest voice" in line for line in header_lines(doc))
+    doc["engines"]["diarization"]["settings"]["labels_folded"] = 1
+    assert any("1 small label folded into the nearest voice" in line for line in header_lines(doc))
+    doc["engines"]["diarization"]["settings"]["labels_folded"] = 0
+    assert not any("folded" in line for line in header_lines(doc))
+
+
 def test_plain_text_without_marks_or_speakers() -> None:
     doc = make_document(with_speakers=False)
     doc["marks"] = []

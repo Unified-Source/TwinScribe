@@ -14,6 +14,7 @@ from pathlib import Path
 
 from twinscribe import __version__
 from twinscribe.audio import find_ffmpeg
+from twinscribe.engines.diarize import DEFAULT_THRESHOLD, LONG_RECORDING_THRESHOLD
 from twinscribe.hardware import (
     BACKEND_CT2,
     BACKEND_ONNX,
@@ -64,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
              "threshold, so a speaker the models cannot separate is missing from the labels rather than "
              "hidden inside another",
     )
+    run.add_argument(
+        "--threshold", type=_positive_float, default=None, metavar="T",
+        help=f"the clustering distance threshold of the speaker labels; the default {DEFAULT_THRESHOLD:g} was "
+             f"measured best on two-speaker telephone calls; {LONG_RECORDING_THRESHOLD:g} keeps each voice "
+             "together on a long recording or a meeting with several voices, where two similar voices on a "
+             "short call would merge; a smaller value yields more labels",
+    )
     run.add_argument("--keep-audio", action="store_true", help="keep the decoded 16 kHz work file")
     run.add_argument("--no-recurse", action="store_true", help="do not descend into sub-folders")
 
@@ -94,6 +102,13 @@ def _positive_int(text: str) -> int:
     value = int(text)
     if value < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def _positive_float(text: str) -> float:
+    value = float(text)
+    if not value > 0.0:
+        raise argparse.ArgumentTypeError("must be above zero")
     return value
 
 
@@ -234,7 +249,8 @@ def command_run(args: argparse.Namespace) -> int:
     for line in plan.describe():
         print(line)
     print(f"detector model: {selection.detector} ({selection.backend})")
-    print(f"speakers: {'fixed at ' + str(args.speakers) if args.speakers else 'by clustering threshold'}")
+    threshold = args.threshold if args.threshold is not None else profile.diarization_threshold
+    print(f"speakers: {'fixed at ' + str(args.speakers) if args.speakers else f'by clustering at threshold {threshold:g}'}")
     live = LiveLine(sys.stdout)
 
     def report(index: int, total: int, p: Progress) -> None:
@@ -256,6 +272,7 @@ def command_run(args: argparse.Namespace) -> int:
         preference=args.device,
         on_outcome=outcome,
         speakers=args.speakers,
+        threshold=args.threshold,
     )
     live.finish()
     for outcome in result.outcomes:

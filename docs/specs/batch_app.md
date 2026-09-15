@@ -62,6 +62,17 @@ show it, rather than hidden inside another label. A count can be given when it i
 an explicit opt-in per batch (the window's Speakers control, the command line's `--speakers`);
 it is recorded in the run record, the document and the text header, with the caution.
 
+The clustering's distance threshold is the level's (0.9, measured best on the bench's
+two-speaker telephone calls) unless the batch gives another: the window's Recording control
+offers the level's value for two or a few voices and 1.2 for a long recording or a meeting with
+several voices, where each voice stays together only at that value while two similar voices on
+a short call would merge; the command line's `--threshold` takes any positive number. The
+effective value is in the run record, the batch record, the document and the text header.
+After the clustering, labels holding less than three seconds of speech are folded into the
+large label whose voice is nearest (`engines.md`, section 5): the clustering leaves such
+fragments at every threshold, and three seconds never hid a speaker who said a few sentences;
+the number folded is in the document and the text header.
+
 ## 3a. Non-speech scenes
 
 The published engine decodes only the utterances the voice detector finds, so it cannot write
@@ -243,9 +254,10 @@ external asset of any kind.
 ## 9. Command line
 
 `twinscribe app [paths] [--models DIR] [--dark] [--shot PNG]`, `twinscribe run <paths> [--models]
-[--out] [--quality] [--threads] [--device] [--speakers N] [--author] [--keep-audio]
-[--no-recurse]` (`--speakers` fixes the speaker count for the batch when it is known; the
-default clusters by threshold, section 3), `twinscribe check [--verify]`, `twinscribe export
+[--out] [--quality] [--threads] [--device] [--speakers N] [--threshold T] [--author]
+[--keep-audio] [--no-recurse]` (`--speakers` fixes the speaker count for the batch when it is
+known and `--threshold` the clustering threshold; the defaults cluster by the level's
+threshold, section 3), `twinscribe check [--verify]`, `twinscribe export
 <transcript.json>` (render text, Word and subtitles again), and `twinscribe verify
 <review.json>`.
 

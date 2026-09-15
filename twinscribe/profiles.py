@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from twinscribe.engines.diarize import DEFAULT_THRESHOLD
 from twinscribe.models import (
     BACKEND_CT2,
     BACKEND_ONNX,
@@ -58,7 +59,8 @@ class Profile:
     publisher_preset: str = "vad"
     detector_preset: str = "production"
     review: ReviewSettings = field(default_factory=ReviewSettings)
-    diarization_threshold: float = 0.5
+    # The speaker clustering's distance threshold; a job can give another (pipeline.Job).
+    diarization_threshold: float = DEFAULT_THRESHOLD
     checking: str = CHECK_EVERYWHERE
     checking_margin_s: float = 0.5
 

@@ -303,7 +303,10 @@ class Job:
     detector model to run (resolved from the profile and the plan when None); preference is
     auto, cpu or cuda and matters only when the plan is probed here; speakers is the speaker
     count when it is known, an explicit opt-in (None clusters by threshold, so a speaker the
-    models cannot separate is missing from the labels rather than hidden inside another).
+    models cannot separate is missing from the labels rather than hidden inside another);
+    threshold is the clustering distance threshold when one is given for the recording (None
+    takes the level's, measured for two or a few voices; a long recording or a meeting takes
+    the long value of the diarizer module).
     """
 
     source: Path
@@ -318,6 +321,7 @@ class Job:
     detector: str | None = None
     preference: str = DEVICE_AUTO
     speakers: int | None = None
+    threshold: float | None = None
 
 
 @dataclass(frozen=True)
@@ -623,6 +627,7 @@ def process_file(
         reporter.report("scenes", 1.0)
 
         reporter.report("speakers", 0.0, LOADING_TITLES["speakers"])
+        threshold = float(job.threshold) if job.threshold is not None else profile.diarization_threshold
         diarization: Diarization | None = None
         speaker_failure: str | None = None
         failures: list[Failure] = []
@@ -633,7 +638,7 @@ def process_file(
                     models.file(KEY_SEGMENTATION, "model.onnx"),
                     models.file(KEY_EMBEDDING, "nemo_en_titanet_large.onnx"),
                     threads=job.threads,
-                    threshold=profile.diarization_threshold,
+                    threshold=threshold,
                     provider=plan.diarizer.provider,
                     **({"num_speakers": int(job.speakers)} if job.speakers is not None else {}),
                 )
@@ -706,7 +711,7 @@ def process_file(
             "diarization": {
                 "engine": "sherpa_diarization",
                 "model": f"{KEY_SEGMENTATION} + {KEY_EMBEDDING}",
-                "preset": f"threshold {profile.diarization_threshold}",
+                "preset": f"threshold {threshold:g}",
             },
         }
         if tagging_result is not None:
@@ -737,6 +742,7 @@ def process_file(
             "detector_engine_settings": dict(detector.settings),
             "parallel_engines": parallel,
             "speakers": job.speakers,
+            "diarization_threshold": threshold,
             "labelling": {
                 "smoothed_words": smoothed_words,
                 "min_run_words": DEFAULT_MIN_RUN_WORDS,
@@ -886,6 +892,7 @@ def run_batch(
     on_partial: BatchPartialFn | None = None,
     speakers: int | None = None,
     history_path: str | os.PathLike[str] | None = None,
+    threshold: float | None = None,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
 
@@ -894,7 +901,8 @@ def run_batch(
     is called with the index and the outcome as soon as each recording finishes; on_partial
     with the index, the role and each segment the published engine produces. The acceleration
     plan is probed once for the batch when not given. speakers is the speaker count when it is
-    known, applied to every recording of the batch; None clusters by threshold.
+    known, applied to every recording of the batch; None clusters by threshold. threshold is
+    the clustering distance threshold for the batch; None takes the level's.
     """
     started_utc = utc_now()
     result = BatchResult()
@@ -930,6 +938,7 @@ def run_batch(
             plan=batch_plan,
             preference=preference,
             speakers=speakers,
+            threshold=threshold,
         )
         started = time.perf_counter()
 
@@ -978,6 +987,7 @@ def run_batch(
                 "profile": profile.name,
                 "models_root": str(models.root),
                 "speakers": speakers,
+                "threshold": threshold,
                 "plan": batch_plan.to_dict(),
                 "files": [o.to_dict() for o in result.outcomes],
                 "failures": [

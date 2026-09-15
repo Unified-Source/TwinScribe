@@ -193,3 +193,16 @@ lock. Nothing in the three wrappers needed changing to run live.
   afresh per call; the caller's thread waits on a pipe and the window keeps answering. The
   cost is the child's start and imports, about a second, on top of the model load the call
   already made. Cancelling during the stage still waits for it to end, as before.
+
+## The fold of small labels
+
+- `fold_small_labels` uses `sherpa_onnx.SpeakerEmbeddingExtractor` on the same embedding
+  model file the diarizer clusters with: a stream per label, `accept_waveform`,
+  `input_finished`, `compute`. One embedding per label from at most thirty seconds of its
+  longest turns, longest first, since a short fragment embeds poorly and a long label needs no
+  more. Measured on this machine (not quotable): the extractor loads in half a second and
+  embeds thirty seconds of audio in 0.4 s, and two twenty-second pieces of one reader sit at a
+  cosine similarity of about 0.88, so the fold's comparison is well inside the model's range.
+  The threshold, the floor and their measurements are in `batch_app.notes.md`; the tests drive
+  the fold with a stand-in embedding of hand-derived values, and a run with the library on one
+  telephone call folded a half-second fragment in half a second.

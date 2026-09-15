@@ -77,7 +77,10 @@ def header_lines(doc: Mapping[str, Any]) -> list[str]:
         if count:
             detail = f", speaker count fixed at {int(count)} (a speaker the models cannot separate is then hidden inside another label)"
         elif threshold is not None:
-            detail = f", clustering threshold {threshold}"
+            detail = f", clustering threshold {float(threshold):g}"
+            folded = int(settings.get("labels_folded") or 0)
+            if folded:
+                detail += f", {folded} small label{'s' if folded != 1 else ''} folded into the nearest voice"
         else:
             detail = ""
         lines.append(f"Speaker labels: {diarization.get('engine', '')}{detail}")

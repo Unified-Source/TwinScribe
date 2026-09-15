@@ -104,15 +104,15 @@ def wait_until(app: QApplication, condition, timeout_s: float = 30.0) -> None:
 
 
 def test_settings_round_trip_and_tolerance(tmp_path: Path) -> None:
-    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"], acceleration="cpu", speakers=3)
+    settings = AppSettings(models_dir="m", quality="quick", dark=True, threads=4, volume=0.5, library=["a", "b"], acceleration="cpu", speakers=3, threshold=1.2)
     path = save_settings(settings, tmp_path / "s.json")
     loaded = load_settings(path)
-    assert loaded == settings and loaded.speakers_or_none == 3
-    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no", "acceleration": "npu", "speakers": 40}), encoding="utf-8")
+    assert loaded == settings and loaded.speakers_or_none == 3 and loaded.threshold_or_none == 1.2
+    path.write_text(json.dumps({"schema": "x", "threads": "many", "volume": 7, "output_mode": "odd", "library": "no", "acceleration": "npu", "speakers": 40, "threshold": 0.7}), encoding="utf-8")
     tolerant = load_settings(path)
     assert tolerant.threads == 0 and tolerant.volume == 1.0 and tolerant.output_mode == "beside" and tolerant.library == []
-    assert tolerant.acceleration == "auto" and tolerant.speakers == 8
-    assert AppSettings().speakers_or_none is None
+    assert tolerant.acceleration == "auto" and tolerant.speakers == 8 and tolerant.threshold == 0.0
+    assert AppSettings().speakers_or_none is None and AppSettings().threshold_or_none is None
     assert load_settings(tmp_path / "absent.json") == AppSettings()
     assert AppSettings(output_mode="folder", output_dir="x").output_dir_or_none == Path("x")
     assert AppSettings(output_mode="folder").output_dir_or_none is None
@@ -514,6 +514,25 @@ def test_speaker_count_from_the_window_reaches_the_diarizer(app: QApplication, t
     assert "speaker count fixed at 2" in window.meta_label.text()
     record = json.loads(output_paths(media["fresh"]).run.read_text(encoding="utf-8"))
     assert record["settings"]["speakers"] == 2
+    dispose(app, window)
+
+
+def test_the_recording_kind_from_the_window_sets_the_clustering_threshold(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    seen: dict[str, dict] = {}
+    window = make_window(app, tmp_path, engines=make_engines(kwargs_seen=seen))
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window.threshold_box.currentData() == 0.0 and window.settings.threshold_or_none is None
+    assert window.threshold_box.itemText(0).endswith("(0.9)") and window.threshold_box.itemText(1).endswith("(1.2)")
+    window.threshold_box.setCurrentIndex(1)
+    assert window.settings.threshold == 1.2
+    assert window.start_transcription() is True
+    assert not window.threshold_box.isEnabled() and "clustering threshold 1.2" in window.statusBar().currentMessage()
+    wait_until(app, lambda: window.worker is None)
+    assert seen["diarizer"]["threshold"] == 1.2 and "num_speakers" not in seen["diarizer"] and window.threshold_box.isEnabled()
+    assert "clustering threshold 1.2" in window.meta_label.text()
+    record = json.loads(output_paths(media["fresh"]).run.read_text(encoding="utf-8"))
+    assert record["settings"]["diarization_threshold"] == 1.2 and record["settings"]["speakers"] is None
     dispose(app, window)
 
 

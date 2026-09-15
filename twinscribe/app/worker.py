@@ -45,12 +45,14 @@ class PipelineWorker(QThread):
         parent: QObject | None = None,
         plan: Plan | None = None,
         speakers: int | None = None,
+        threshold: float | None = None,
     ) -> None:
         super().__init__(parent)
         if len(rows) != len(sources):
             raise ValueError("rows and sources must have the same length")
         self._plan = plan
         self._speakers = speakers
+        self._threshold = threshold
         self._rows = list(rows)
         self._sources = [Path(s) for s in sources]
         self._profile = profile
@@ -101,6 +103,7 @@ class PipelineWorker(QThread):
                 plan=self._plan,
                 on_partial=on_partial,
                 speakers=self._speakers,
+                threshold=self._threshold,
             )
         except Exception as exc:  # noqa: BLE001 - a thread must not die silently
             result = BatchResult()

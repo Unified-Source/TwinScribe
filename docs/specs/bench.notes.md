@@ -89,7 +89,10 @@ speed pool is empty by the report's rule and nothing here is a speed figure.
   design describes; by threshold, 14 labels on the window and over a hundred on the whole
   meeting. On the telephone set the count-supplied error pools to 13.8 per cent at the
   0.25 s collar against the design's 32; the design does not record its collar or pooling,
-  so this stays a difference in method until it does.
+  so this stays a difference in method until it does. These speaker rows were measured at the
+  clustering threshold of the time, 0.5; the variant runs at the tool's default, which the
+  measurements of 2026-09-15 raised to 0.9 with a fold of labels under three seconds
+  (`batch_app.notes.md`), where the telephone set pools to 9.5 per cent by threshold.
 - Whole meetings (1,273 s each): transducer 18.4 per hundred on the headset mix and 42.8 on
   the far-field microphone; the review list on the far-field meeting raises 77 marks, 59 on
   speech, covering 469 of 517 dropped words for 47 per cent of the audio. The rule was tuned
