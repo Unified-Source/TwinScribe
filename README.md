@@ -186,8 +186,8 @@ python -m twinscribe app <folder with the recordings>
   four-speaker meeting, dozens on a two-hour two-voice recording, a one-reader chapter split in
   two. The default is now 0.9, the value with the lowest error on the bench's telephone calls,
   below the error with the count fixed at two; a second value, 1.2, keeps each voice together on
-  a long recording or a meeting with several voices, and is offered as a Recording choice in
-  the window and as `--threshold` on the command line. After the clustering, labels holding
+  a long recording or a meeting with several voices, and is offered in the window's Speakers
+  box and as `--threshold` on the command line. After the clustering, labels holding
   under three seconds of speech are folded into the nearest voice, which removes the fragments
   left at every threshold without hiding anyone who said a few sentences. The measurements are
   in `docs/specs/batch_app.notes.md`.

@@ -63,10 +63,10 @@ an explicit opt-in per batch (the window's Speakers control, the command line's 
 it is recorded in the run record, the document and the text header, with the caution.
 
 The clustering's distance threshold is the level's (0.9, measured best on the bench's
-two-speaker telephone calls) unless the batch gives another: the window's Recording control
-offers the level's value for two or a few voices and 1.2 for a long recording or a meeting with
-several voices, where each voice stays together only at that value while two similar voices on
-a short call would merge; the command line's `--threshold` takes any positive number. The
+two-speaker telephone calls) unless the batch gives another: the window's Speakers box offers,
+beside Auto and a count, Auto for a long recording or a meeting with several voices, which
+sets 1.2, where each voice stays together while two similar voices on a short call would
+merge; the command line's `--threshold` takes any positive number. The
 effective value is in the run record, the batch record, the document and the text header.
 After the clustering, labels holding less than three seconds of speech are folded into the
 large label whose voice is nearest (`engines.md`, section 5): the clustering leaves such
@@ -166,10 +166,9 @@ transcript recording that its word times are approximate.
 
 ## 6. The window, top to bottom
 
-1. Top bar: the name, Open files, Open folder, the quality level, the speaker count (Auto, or
-   a number when it is known; section 3), the recording kind that sets the clustering
-   threshold (two or a few voices, or a long recording or meeting; section 3), Transcribe
-   (primary), Stop while a batch runs, settings.
+1. Top bar: the name, Open files, Open folder, the quality level, the speaker count (Auto,
+   Auto for a long recording or a meeting, or a number when it is known; section 3),
+   Transcribe (primary), Stop while a batch runs, settings.
 2. A horizontal splitter:
    - left, the library: one row per recording with a state glyph (not transcribed, queued,
      running with a progress ring and bar, done with a tick, failed with a warning), its name,

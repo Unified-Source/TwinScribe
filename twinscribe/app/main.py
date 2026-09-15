@@ -111,14 +111,13 @@ from twinscribe.runrecord import write_json_atomic
 ACCELERATION_TITLES: dict[str, str] = {"auto": "Automatic", "cpu": "Processor only", "cuda": "CUDA device"}
 SPEAKERS_TIP = (
     "How many speakers to label. Auto lets the clustering decide, so a speaker the models cannot "
-    "separate is missing rather than hidden inside another label; set a number only when it is known."
+    "separate is missing rather than hidden inside another label. Auto for a long recording or a "
+    f"meeting widens the clustering's threshold from {DEFAULT_THRESHOLD:g}, measured best on two-speaker "
+    f"telephone calls, to {LONG_RECORDING_THRESHOLD:g}, where each voice of a long recording stays "
+    "together while two similar voices on a short call would merge. Set a number only when it is known."
 )
-THRESHOLD_TIP = (
-    "How far apart two voices must be for the clustering to keep them as two speakers. "
-    f"{DEFAULT_THRESHOLD:g} was measured best on two-speaker telephone calls; a long recording, or a "
-    f"meeting with several voices, keeps each voice together only at {LONG_RECORDING_THRESHOLD:g}, where "
-    "two similar voices on a short call would merge into one."
-)
+# The Speakers box's data: the count, zero for Auto, and this for Auto at the long threshold.
+AUTO_LONG_RECORDING = -1
 
 APP_TITLE = "TwinScribe"
 SHOT_DELAY_MS = 1200
@@ -464,26 +463,18 @@ class MainWindow(QMainWindow):
         speakers_label.setObjectName("muted")
         self.speakers_box = QComboBox(top)
         self.speakers_box.addItem("Auto", 0)
+        self.speakers_box.addItem(f"Auto, long recording or meeting ({LONG_RECORDING_THRESHOLD:g})", AUTO_LONG_RECORDING)
         for count in range(1, MAX_SPEAKERS + 1):
             self.speakers_box.addItem(str(count), count)
-        self.speakers_box.setCurrentIndex(max(0, self.speakers_box.findData(int(self.settings.speakers))))
+        long_recording = self.settings.speakers <= 0 and self.settings.threshold_or_none is not None
+        self.speakers_box.setCurrentIndex(
+            max(0, self.speakers_box.findData(AUTO_LONG_RECORDING if long_recording else int(self.settings.speakers)))
+        )
         self.speakers_box.setToolTip(SPEAKERS_TIP)
         self.speakers_box.currentIndexChanged.connect(self._on_speakers_changed)
         top_layout.addSpacing(6)
         top_layout.addWidget(speakers_label)
         top_layout.addWidget(self.speakers_box)
-
-        recording_label = QLabel("Recording", top)
-        recording_label.setObjectName("muted")
-        self.threshold_box = QComboBox(top)
-        self.threshold_box.addItem(f"Two or a few voices ({DEFAULT_THRESHOLD:g})", 0.0)
-        self.threshold_box.addItem(f"Long recording or meeting ({LONG_RECORDING_THRESHOLD:g})", LONG_RECORDING_THRESHOLD)
-        self.threshold_box.setCurrentIndex(max(0, self.threshold_box.findData(float(self.settings.threshold))))
-        self.threshold_box.setToolTip(THRESHOLD_TIP)
-        self.threshold_box.currentIndexChanged.connect(self._on_threshold_changed)
-        top_layout.addSpacing(6)
-        top_layout.addWidget(recording_label)
-        top_layout.addWidget(self.threshold_box)
 
         self.models_button = QPushButton("Get models", top)
         self.models_button.setObjectName("primary")
@@ -1247,11 +1238,9 @@ class MainWindow(QMainWindow):
 
     def _on_speakers_changed(self, index: int) -> None:
         value = self.speakers_box.itemData(index)
-        self.settings.speakers = int(value) if value is not None else 0
-
-    def _on_threshold_changed(self, index: int) -> None:
-        value = self.threshold_box.itemData(index)
-        self.settings.threshold = float(value) if value is not None else 0.0
+        chosen = int(value) if value is not None else 0
+        self.settings.speakers = max(0, chosen)
+        self.settings.threshold = LONG_RECORDING_THRESHOLD if chosen == AUTO_LONG_RECORDING else 0.0
 
     def selected_profile(self) -> Profile | None:
         name = self.quality_box.currentData()
@@ -1355,7 +1344,6 @@ class MainWindow(QMainWindow):
         self.transcribe_button.setEnabled(False)
         self.quality_box.setEnabled(False)
         self.speakers_box.setEnabled(False)
-        self.threshold_box.setEnabled(False)
         self.batch_label.setText(f"0 of {self._batch_total}")
         where = placement.describe() if placement is not None else "processor"
         backend = "CTranslate2" if selection.backend == BACKEND_CT2 else "ONNX"
@@ -1558,7 +1546,6 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(True)
         self.quality_box.setEnabled(True)
         self.speakers_box.setEnabled(True)
-        self.threshold_box.setEnabled(True)
         self.batch_label.setText("")
         text = f"Batch finished: {completed} done"
         if failures:

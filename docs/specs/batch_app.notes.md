@@ -373,8 +373,12 @@ So 0.5 is the worst value on every set, and no single value is best everywhere: 
 voices on a short call begin to merge from 1.0, while a long recording and a four-party
 meeting settle only at 1.2. The default is 0.9, the best measured value on the labelled
 two-speaker set and below the fixed count there; 1.2 is offered for a long recording or a
-meeting (the window's Recording control, the command line's `--threshold`), and the bench's
-speaker variant runs at the default, so its tables from before this change are at 0.5.
+meeting (the window's Speakers box, the command line's `--threshold`), and the bench's
+speaker variant runs at the default, so its tables from before this change are at 0.5. The
+choice was first a box of its own in the top bar, beside the speaker count; with the Stop
+button shown during a batch the bar then exceeded 1280 pixels and forced the window wider
+than a laptop screen, so the choice moved into the Speakers box as a second Auto entry, which
+is where a reader looks for it anyway.
 
 At every threshold short of merging voices the clustering leaves a tail of labels holding a
 second or two, a few dozen on a long recording. They are now folded into the large label

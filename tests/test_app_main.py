@@ -517,23 +517,30 @@ def test_speaker_count_from_the_window_reaches_the_diarizer(app: QApplication, t
     dispose(app, window)
 
 
-def test_the_recording_kind_from_the_window_sets_the_clustering_threshold(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+def test_the_speakers_box_offers_the_long_recording_clustering(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
     seen: dict[str, dict] = {}
     window = make_window(app, tmp_path, engines=make_engines(kwargs_seen=seen))
     window.add_paths([media["fresh"]])
     app.processEvents()
-    assert window.threshold_box.currentData() == 0.0 and window.settings.threshold_or_none is None
-    assert window.threshold_box.itemText(0).endswith("(0.9)") and window.threshold_box.itemText(1).endswith("(1.2)")
-    window.threshold_box.setCurrentIndex(1)
-    assert window.settings.threshold == 1.2
+    assert window.speakers_box.itemText(1) == "Auto, long recording or meeting (1.2)"
+    assert window.speakers_box.currentData() == 0 and window.settings.threshold_or_none is None
+    window.speakers_box.setCurrentIndex(1)
+    assert window.settings.speakers == 0 and window.settings.threshold == 1.2
     assert window.start_transcription() is True
-    assert not window.threshold_box.isEnabled() and "clustering threshold 1.2" in window.statusBar().currentMessage()
+    assert not window.speakers_box.isEnabled() and "clustering threshold 1.2" in window.statusBar().currentMessage()
     wait_until(app, lambda: window.worker is None)
-    assert seen["diarizer"]["threshold"] == 1.2 and "num_speakers" not in seen["diarizer"] and window.threshold_box.isEnabled()
+    assert seen["diarizer"]["threshold"] == 1.2 and "num_speakers" not in seen["diarizer"] and window.speakers_box.isEnabled()
     assert "clustering threshold 1.2" in window.meta_label.text()
     record = json.loads(output_paths(media["fresh"]).run.read_text(encoding="utf-8"))
     assert record["settings"]["diarization_threshold"] == 1.2 and record["settings"]["speakers"] is None
+    # A count chosen afterwards puts the threshold back to the level's.
+    window.speakers_box.setCurrentIndex(window.speakers_box.findData(2))
+    assert window.settings.speakers == 2 and window.settings.threshold == 0.0
     dispose(app, window)
+    # A window opened on saved settings with the long threshold shows that choice.
+    reopened = make_window(app, tmp_path, threshold=1.2)
+    assert reopened.speakers_box.currentData() == -1 and reopened.settings.threshold_or_none == 1.2
+    dispose(app, reopened)
 
 
 def test_batch_reports_the_placement(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
