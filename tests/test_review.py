@@ -402,3 +402,29 @@ def test_checking_windows_widen_merge_and_clamp() -> None:
     assert checking_windows(words, 0.0) == []
     with pytest.raises(ValueError):
         checking_windows(words, 10.0, margin_s=-1.0)
+
+
+def test_detector_echoes_of_the_bordering_published_words_are_not_missed_speech() -> None:
+    from twinscribe.review import echoes_removed
+
+    published = [word("all", 0.0, 0.4), word("the", 0.4, 0.7), word("year", 0.7, 1.0), word("round.", 1.0, 1.4),
+                 word("More", 2.8, 3.1), word("than", 3.1, 3.4)]
+    # The detector's copies of "round." and "More" fall inside the publisher's gap, 1.4 to 2.8:
+    # the transcript has both words, so nothing was missed and no mark is raised.
+    echoes = [word("year", 0.75, 1.05), word("round.", 1.6, 1.9), word("more", 2.3, 2.6), word("than", 3.15, 3.45)]
+    assert build_review(published, echoes, 4.0) == []
+    # Two words the publisher has nowhere keep the mark, and the hint names only them.
+    missed = [word("round.", 1.6, 1.9), word("then", 1.9, 2.2), word("again", 2.2, 2.5), word("more", 2.5, 2.7)]
+    marks = build_review(published, missed, 4.0)
+    assert len(marks) == 1 and marks[0].detector_words == 2 and marks[0].detector_text == "then again"
+    assert marks[0].span_start == 1.4 and marks[0].span_end == 2.8
+    # A repetition the detector also heard outside the gap, where the publisher has the word,
+    # is what was said and stays.
+    repeated = [word("round.", 1.05, 1.35), word("round.", 1.6, 1.9), word("round.", 2.0, 2.4), word("More", 2.85, 3.1)]
+    marks = build_review(published, repeated, 4.0)
+    assert len(marks) == 1 and marks[0].detector_text == "round. round."
+    # The rule on its own: the head and the tail are matched after normalisation, one run each.
+    inside = [word("Round", 1.5, 1.8), word("x", 1.9, 2.1), word("MORE.", 2.4, 2.7)]
+    assert [w.text for w in echoes_removed(inside, published[:4], published[4:])] == ["x"]
+    assert [w.text for w in echoes_removed(inside, published[:4], published[4:], detector_before=[word("round", 1.0, 1.4)])] == ["Round", "x"]
+    assert echoes_removed([], published[:4], published[4:]) == []

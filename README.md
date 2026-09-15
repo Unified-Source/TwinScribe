@@ -153,10 +153,11 @@ there as the starting point for what was actually said, with a box to say who sp
 a mark plays its span. Three decisions per mark: nothing was said (N), keep the words in the
 box once they are right (Ctrl+Enter), or reopen a mark decided in error (O). Every decision is
 written at once into the transcript document and its text, Word and subtitle files: the
-listener's words become a line of their own where they were said, the line around them split
-at the gap, marked "heard on review" in every output; the checked marks turn green on both
-timelines, and the window behind follows as the screen writes; the engine's words are never
-altered. A session file beside the review list records every decision, and the transcript
+listener's words go into the line where they were said, so the reader meets them in the flow
+of what was said, marked as the listener's in every output (braces in the text, italics in
+Word); the checked marks turn green on both timelines, and the window behind follows as the
+screen writes; the engine's words are never altered. Words the second engine heard in a gap
+that the transcript already holds on either side of it are not offered as missed speech. A session file beside the review list records every decision, and the transcript
 records them too, so a pass can be resumed later, even from an exported folder.
 
 To do the same: fetch the models once, open the window on a folder, press Transcribe.
@@ -168,6 +169,15 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-15, the review reads in order.** Words a listener kept for a gap were written as a
+  line of their own between the engine's lines, so a reader met the same words twice, or an
+  orphan line that broke the sentence around it; and a gap was often marked for words the
+  transcript already held on either side of it, since the two engines time a word differently
+  and the second engine's copy of a neighbouring word fell inside the gap. The kept words now
+  go into the line where they were said, marked as the listener's within it, and the second
+  engine's echoes of the bordering words no longer raise a mark or fill the words box, so the
+  hint names only what the transcript lacks. The measurements are in
+  `docs/specs/review.notes.md`. Version 0.0.2.
 - **2026-09-15, the speaker clustering measured.** The threshold that decides when two voices
   are two speakers was the library's own default, and on every set in the lab it was the
   worst value measured: six labels on a two-speaker telephone call, over a hundred on a

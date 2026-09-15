@@ -322,14 +322,22 @@ def test_listener_lines_render_as_the_listeners() -> None:
     doc = make_document("call.wav")
     revised = apply_resolutions(doc, [{"status": "text", "note": "yes I am here"}, {"status": "nothing", "note": ""}])
     text = render_text(revised)
-    assert "Reviewed by a listener: 2 spans checked; 1 carries words typed after listening, shown as heard on review." in text
-    assert "(heard on review): yes I am here" in text
+    assert "Reviewed by a listener: 2 spans checked; 1 carries words typed after listening, marked in braces." in text
+    assert "Unknown speaker: {yes I am here}" in text
     xml = document_xml(revised)
-    assert "(heard on review)" in xml and "Reviewed by a listener" in xml
-    # The listener's words are the italic run that follows the suffix.
+    assert "marked in italics" in xml and "Reviewed by a listener" in xml and "heard on review" not in xml
+    # The listener's words are an italic run.
     assert '<w:i/>' in xml.split("yes I am here")[0].rsplit("<w:r>", 1)[-1]
     # A document without an applied review renders as before.
-    assert "heard on review" not in render_text(doc) and "Reviewed by" not in document_xml(doc)
+    assert "{" not in render_text(doc) and "Reviewed by" not in document_xml(doc)
+    # Words kept inside a speaker's own line are marked within the line.
+    same = json.loads(json.dumps(doc))
+    for line in same["lines"]:
+        line["speaker"] = "speaker_00"
+    merged = apply_resolutions(same, [{"status": "text", "note": "yes I am here"}, {"status": "open", "note": ""}])
+    assert "Speaker 1: good morning this is the first call {yes I am here}" in render_text(merged)
+    merged_xml = document_xml(merged)
+    assert "first call" in merged_xml and '<w:i/>' in merged_xml.split("yes I am here")[0].rsplit("<w:r>", 1)[-1]
 
 
 # ----- outputs written each on its own, the listener's cues, the header when all is checked ---

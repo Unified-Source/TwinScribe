@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from twinscribe.runrecord import write_json_atomic
+from twinscribe.text import tokenize_norm
 
 if TYPE_CHECKING:
     from twinscribe.engines.base import Transcript, Word
@@ -154,6 +155,52 @@ def checking_windows(
     return merged
 
 
+def _normalised(word: Word) -> str:
+    """The word's text as the normaliser reads it, for comparing the two engines' words."""
+    return " ".join(tokenize_norm(word.text))
+
+
+def echoes_removed(
+    inside: Sequence[Word],
+    before: Sequence[Word],
+    after: Sequence[Word],
+    detector_before: Sequence[Word] = (),
+    detector_after: Sequence[Word] = (),
+) -> list[Word]:
+    """The detector words of a span without those that only repeat the published words
+    bordering it.
+
+    The two engines time a word differently by a fraction of a second, so the detector's copy
+    of the word just before a gap, or just after it, can fall inside the gap; such a copy is
+    an echo of speech the transcript already has, not missed speech. The longest run at the
+    start of the span that matches, word for word after normalisation, the published words
+    ending before the span is dropped, and so is the longest run at the end that matches the
+    published words starting after it. A run the detector also heard outside the span, where
+    the publisher has it, is not an echo but a repetition and stays: `detector_before` and
+    `detector_after` are the detector's words ending before and starting after the span.
+    """
+    words = list(inside)
+    norms = [_normalised(w) for w in words]
+    outside_before = [_normalised(w) for w in detector_before]
+    outside_after = [_normalised(w) for w in detector_after]
+    head = 0
+    for count in range(min(len(words), len(before)), 0, -1):
+        candidate = norms[:count]
+        if all(candidate) and candidate == [_normalised(w) for w in before[-count:]]:
+            if outside_before[-count:] != candidate:
+                head = count
+            break
+    words, norms = words[head:], norms[head:]
+    tail = 0
+    for count in range(min(len(words), len(after)), 0, -1):
+        candidate = norms[len(norms) - count:]
+        if all(candidate) and candidate == [_normalised(w) for w in after[:count]]:
+            if outside_after[:count] != candidate:
+                tail = count
+            break
+    return words[: len(words) - tail]
+
+
 def build_review(
     published: list[Word],
     detector: list[Word],
@@ -165,8 +212,10 @@ def build_review(
     """Marks for every maximal published-silent span of at least min_silence_s that holds
     at least min_detector_words detector words; leading and trailing silence count.
 
-    A detector word falls in a span when its interval overlaps the span. The play window is
-    the span padded by pad_s on both sides and clamped to [0, audio_s].
+    A detector word falls in a span when its interval overlaps the span; detector words that
+    only echo the published words bordering the span do not count (echoes_removed), and the
+    mark's hint carries the words that remain. The play window is the span padded by pad_s
+    on both sides and clamped to [0, audio_s].
     """
     if min_silence_s < 0.0 or pad_s < 0.0 or min_detector_words < 0:
         raise ValueError("min_silence_s, pad_s and min_detector_words must not be negative")
@@ -174,11 +223,32 @@ def build_review(
         return []
     detector_sorted = sorted(detector, key=lambda w: (w.start, w.end))
     detector_index = _Intervals((w.start, w.end) for w in detector_sorted)
+    by_end = sorted(published, key=lambda w: (w.end, w.start))
+    ends = [w.end for w in by_end]
+    by_start = sorted(published, key=lambda w: (w.start, w.end))
+    starts = [w.start for w in by_start]
+    detector_by_end = sorted(detector, key=lambda w: (w.end, w.start))
+    detector_ends = [w.end for w in detector_by_end]
+    detector_starts = [w.start for w in detector_sorted]
     marks: list[Mark] = []
     for span_start, span_end in _silent_spans(published, audio_s):
         if (span_end - span_start) + _LENGTH_TOLERANCE < min_silence_s:
             continue
         inside = [detector_sorted[i] for i in detector_index.overlapping(span_start, span_end)]
+        if len(inside) < min_detector_words:
+            continue
+        count = len(inside)
+        last_before = bisect_right(ends, span_start + _LENGTH_TOLERANCE)
+        first_after = bisect_left(starts, span_end - _LENGTH_TOLERANCE)
+        detector_last_before = bisect_right(detector_ends, span_start + _LENGTH_TOLERANCE)
+        detector_first_after = bisect_left(detector_starts, span_end - _LENGTH_TOLERANCE)
+        inside = echoes_removed(
+            inside,
+            by_end[max(0, last_before - count):last_before],
+            by_start[first_after:first_after + count],
+            detector_by_end[max(0, detector_last_before - count):detector_last_before],
+            detector_sorted[detector_first_after:detector_first_after + count],
+        )
         if len(inside) < min_detector_words:
             continue
         text = " ".join(piece for piece in (w.text.strip() for w in inside) if piece)

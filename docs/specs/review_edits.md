@@ -18,15 +18,18 @@ output must show those words as the listener's, never as the engine's.
 
 `apply_resolutions(doc, resolutions)` returns a new document, one resolution per mark:
 
-- a mark resolved with text gains a line of its own whose words are the typed words spread
-  evenly across the publisher's silent span, each word carrying `"src": "listener"`, the line
-  too; when the gap falls inside an engine line (a pause between the review threshold and the
-  line break), that line is split around it, every word as it was, so the listener's words
-  read where they were said and the subtitle cues do not overlap; the line's speaker is the
-  one the resolution names (`speaker`: a label, or an empty string for none), else the speaker
-  of the line the gap falls inside, else the one speaking both immediately before and
-  immediately after the gap, else none; the speaker given is recorded in the mark's
-  resolution;
+- a mark resolved with text puts the typed words into the transcript where the gap is, spread
+  evenly across the publisher's silent span, each word carrying `"src": "listener"` and the
+  number of its mark, so that the reader meets them in the flow of what was said: inside the
+  engine line the gap falls in, at the gap; else at the end of the line before the gap when
+  that line's speaker is the words' speaker, else at the start of the line after it when
+  that line's is; only when neither line is that speaker's do the words form a line of their
+  own, carrying `"src": "listener"` itself. The words' speaker is the one the resolution names
+  (`speaker`: a label, or an empty string for none), else the speaker of the line the gap
+  falls inside, else the one speaking both immediately before and immediately after the gap,
+  else none; a named speaker other than the one whose line the gap falls inside splits that
+  line around the gap, every word as it was, and the words stand between the pieces. The
+  speaker given is recorded in the mark's resolution;
 - a mark resolved as nothing said gains `"resolution": {"status": "nothing"}`; a mark with text
   gains the text as its resolution; open marks gain nothing;
 - lines are kept in time order and the speaker summary is counted again from the lines, so
@@ -35,10 +38,13 @@ output must show those words as the listener's, never as the engine's.
   are still open, and how many words the listener added.
 
 The engine's words are never altered or removed, and the review list keeps the engine's own
-account of each gap. Applying again first removes the earlier listener lines, so a changed
-resolution replaces rather than accumulates. `apply_session(transcript, session, author)`
-reads the session beside the review set, applies it, writes the document and renders the text,
-Word and subtitle outputs again.
+account of each gap. Applying again first takes the earlier listener words and lines out and
+joins the split lines, so a changed resolution replaces rather than accumulates.
+`apply_session(transcript, session, author)` reads the session beside the review set, applies
+it, writes the document and renders the text, Word and subtitle outputs again.
+`text_runs(line)` gives a line's text as runs of consecutive words with whether each run is
+the listener's, for the outputs; `listener_line_for(doc, mark)` finds the line holding a
+mark's words by the number they carry.
 
 ## 3. The verification screen
 
@@ -52,16 +58,21 @@ Word and subtitle outputs again.
 
 ## 4. Rendering the listener's words
 
-- Plain text: a listener line reads `[m:ss] Name (heard on review): words`; the header carries
-  one sentence from `reviewed_note` when a review was applied.
-- Word: the listener's words in italics with a muted "(heard on review)" after the name; the
-  same header sentence among the metadata lines.
-- Subtitles: the words as they are; a cue carries no provenance.
-- The transcript pane: listener lines in the success colour and italics, with the same suffix.
+- Plain text: the listener's words stand in braces inside the line, `[m:ss] Name: the engine's
+  words {the listener's} more of the engine's`; the header carries one sentence from
+  `reviewed_note` when a review was applied, which says the words are marked in braces.
+- Word: the listener's words in italics inside the line; the same header sentence, saying
+  italics, among the metadata lines.
+- Subtitles: the words as they are; a cue of a line of the listener's own carries the mark in
+  its prefix, a cue of an engine line holding listener words carries nothing.
+- The transcript pane: the listener's words in the success colour and italics inside the line.
 
 ## 5. Tests
 
-Spread words and their source; speaker inference on both sides agreeing or not; the recount;
-idempotence and replacement; the header sentence in each state; the session reader's
-tolerance; `apply_session` writing the document and the three outputs; the screen's A action
-writing a revised document with the listener's line (offscreen, with the text prompt replaced).
+Spread words and their source and mark; speaker inference on both sides agreeing or not; the
+words joining the line before the gap, the line after it, the line around it, or standing on
+their own, and a named speaker splitting a line; the recount; idempotence and replacement,
+with the lines as they were once the words are taken out; the header sentence in each state;
+the session reader's tolerance; `apply_session` writing the document and the three outputs;
+the screen's action writing a revised document with the listener's words (offscreen, with the
+text prompt replaced); the runs of a line and their rendering in braces and italics.

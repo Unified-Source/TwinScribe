@@ -34,7 +34,7 @@ from PySide6.QtWidgets import QTextEdit, QWidget
 
 from twinscribe.app.theme import Theme, theme_for, with_alpha
 from twinscribe.labelling import UNLABELLED_NAME
-from twinscribe.amend import LISTENER_SUFFIX, SOURCE_LISTENER
+from twinscribe.amend import text_runs
 from twinscribe.outputs.transcript_doc import clock, scene_phrase, speaker_names
 
 KIND_LINE = "line"
@@ -226,13 +226,9 @@ class TranscriptView(QTextEdit):
                 coloured = QTextCharFormat(name_format)
                 coloured.setForeground(QColor(colour))
                 cursor.insertText(name, coloured)
-                if line.get("src") == SOURCE_LISTENER:
-                    cursor.insertText(f" ({LISTENER_SUFFIX})", scene_format)
-                    cursor.insertText("  ", text_format)
-                    cursor.insertText(str(line.get("text", "")), resolved_format)
-                else:
-                    cursor.insertText("  ", text_format)
-                    cursor.insertText(str(line.get("text", "")), text_format)
+                cursor.insertText("  ", text_format)
+                for position, (run_text, listener) in enumerate(text_runs(line)):
+                    cursor.insertText((" " if position else "") + run_text, resolved_format if listener else text_format)
                 self._block_info[block_number] = (KIND_LINE, index)
                 self._line_starts.append(start)
                 self._line_blocks.append(block_number)

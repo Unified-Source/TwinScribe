@@ -24,6 +24,16 @@ words have no coverage and in which at least `min_detector_words` detector words
 falls in a span if its interval overlaps it. Leading and trailing silence count as spans.
 `start` and `end` are the span padded by `pad_s` and clamped to the audio.
 
+Detector words that only echo the published words bordering the span do not count
+(`echoes_removed`): the two engines time a word differently by a fraction of a second, and
+on some audio by much more, so the detector's copy of the word just before the gap, or just
+after it, falls inside the gap although the transcript already has it. The longest run at the
+start of the span that matches, word for word after normalisation, the published words ending
+before it is dropped, and the longest run at the end matching the published words starting
+after it; a run the detector also heard outside the span, where the publisher has it, is a
+repetition and stays. The mark's `detector_words` and `detector_text` are the words that
+remain, so the hint the listener sees names only what the transcript lacks.
+
 ```python
 @dataclass(frozen=True)
 class ReviewEvaluation:

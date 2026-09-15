@@ -6,8 +6,8 @@ published transcript either side of the gap, and takes for every mark either tha
 was said or the words that were, typed in place over what the second engine heard, with the
 speaker they belong to. Every resolution is written at once to `<review_set stem>.session.json`
 beside the review set and, when the transcript document sits beside it, into the transcript
-itself: the listener's words become a line of their own, marked as heard on review, and the
-text, Word and subtitle files are written again.
+itself: the listener's words go into the line where the gap is, marked as the listener's, and
+the text, Word and subtitle files are written again.
 
 Entry point: `python -m twinscribe.app.verify <review_set.json> [--dark] [--shot out.png]`.
 
@@ -62,7 +62,7 @@ SHOT_DELAY_MS = 800
 TICK = "✓"  # check mark shown before a resolved row
 ROW_NOTE_CHARS = 24
 STATUS_NOTE_CHARS = 60
-CAPTION_TAIL = "the kept words are recorded as the listener's, marked heard on review."
+CAPTION_TAIL = "the kept words go into the transcript at the gap, marked as the listener's."
 SPEAKER_INFERRED = "Speaker: as the lines around the gap suggest"
 SPEAKER_NONE = "No speaker"
 
@@ -329,6 +329,8 @@ def document_words(transcript_path: Path) -> list[tuple[float, str | None, str]]
             continue
         label = line.get("speaker")
         for word in line.get("words", []):
+            if word.get("src") == "listener":
+                continue
             text = str(word.get("w", "")).strip()
             if text:
                 words.append((float(word.get("s", 0.0)), None if label is None else str(label), text))
@@ -675,7 +677,7 @@ class VerifyWindow(QMainWindow):
         self.keep_button = QPushButton("Keep these words (Ctrl+Enter)", right)
         self.keep_button.setToolTip(
             "Record the words above as what was said in this span; they go into the transcript "
-            "at once as a line of the listener's, marked heard on review"
+            "at once, into the line where the gap is, marked as the listener's"
         )
         self.reopen_button = QPushButton("Reopen (O)", right)
         self.reopen_button.setToolTip(

@@ -116,3 +116,28 @@ was read or written).
   parsed after the last closing parenthesis so command names with spaces do not shift the
   fields, `/sys/class/power_supply` for mains) is written from the documented counter
   layouts and was not executed here; the probe-shape tests run there unchanged.
+
+## Echoes of the bordering words
+
+- Found by the owner on a one-reader chapter: a mark over a gap of 1.3 s whose hint was the
+  word ending the line before the gap and the word opening the line after it, both already in
+  the transcript; kept as typed, they stood twice. The second engine had timed both words a
+  fraction of a second later than the published engine, inside the gap. On the telephone
+  calls the same happens with far larger offsets: the published engine places a whole phrase
+  ten seconds late, so the detector's copy of it fills the gap where it was said.
+- `echoes_removed` drops, from the detector words inside a span, the longest run at the start
+  that matches the published words ending before the span and the longest run at the end that
+  matches the words starting after it, after normalisation; a run the detector also heard
+  outside the span, where the publisher has it, is a repetition and stays. Measured by
+  rescoring the cached engine outputs of the 2026-09-09 bench (`--rescore`, review variant):
+  on the 24 telephone calls the marks go from 59 to 29, all 29 on speech (98 to 100 per cent
+  precision), the dropped words covered from 167 to 143 of 254 (66 to 56 per cent), the
+  audio to review from 18.3 to 10.5 per cent; on the four meeting items from 123 to 85 marks,
+  the covered dropped words from 585 to 517 of 653 (90 to 79 per cent), the audio to review
+  from 32.6 to 25.6 per cent.
+- The cost read against the transcript rather than the times: the 30 telephone marks removed
+  held 61 reference words, of which 35 are in the published text within two seconds of the
+  span, placed there by the published engine's timing, and 26 are absent, one per removed mark
+  on average. Those are single dropped words, below the two-word rule of the design, that an
+  echo beside them had lifted over it; the rule stands at two words, so the review list stops
+  asking for words the transcript has and halves its length on the calls.

@@ -376,7 +376,7 @@ def test_pane_shows_listener_lines_as_such(app: QApplication, tmp_path: Path) ->
     view = TranscriptView(None, theme_for(False))
     view.set_document(revised)
     shown = view.toPlainText()
-    assert "(heard on review)  yes I am here" in shown
+    assert "Unknown speaker  yes I am here" in shown and "heard on review" not in shown
     assert view.line_count() == len(revised["lines"])
     view.deleteLater()
 
@@ -656,7 +656,7 @@ def test_checked_marks_show_in_the_pane_and_on_the_timeline(app: QApplication, t
     assert "Checked: the listener's words follow." in text
     assert "Checked: nothing was said." in text
     assert "Listener heard" not in text
-    assert "(heard on review)  yes I am here" in text
+    assert "Unknown speaker  yes I am here" in text
     assert view.line_count() == 5                          # the listener's line is a line of the pane
     assert window.player_bar.timeline._resolved == [True, True]
     assert window.player_bar.timeline.playhead() == pytest.approx(7.0)   # the player was left alone
@@ -682,10 +682,10 @@ def test_the_review_screen_writes_through_to_the_window(app: QApplication, tmp_p
     app.processEvents()
     # The pane behind the screen shows the listener's line while the screen is still open.
     text = window.transcript_view.toPlainText()
-    assert "Checked: the listener's words follow." in text and "(heard on review)  yes I am here" in text
+    assert "Checked: the listener's words follow." in text and "Unknown speaker  yes I am here" in text
     assert window.player_bar.timeline._resolved == [True, False]
     paths = output_paths(media["done"])
-    assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
+    assert "Unknown speaker: {yes I am here}" in paths.text.read_text(encoding="utf-8")
     screen.resolve_nothing()
     app.processEvents()
     assert window.player_bar.timeline._resolved == [True, True]

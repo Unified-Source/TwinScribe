@@ -19,6 +19,7 @@ from twinscribe.amend import (
     read_resolutions,
     reviewed_note,
     strip_listener,
+    text_runs,
 )
 from twinscribe.outputs.transcript_doc import load_document, write_document
 
@@ -35,6 +36,7 @@ def test_listener_words_are_spread_and_marked() -> None:
     assert [w["w"] for w in words] == ["yes", "I", "am", "here"]
     assert words[0]["s"] == pytest.approx(3.5) and words[-1]["e"] == pytest.approx(6.0)
     assert words[1]["s"] == pytest.approx(3.5 + 2.5 / 4) and all(w["src"] == SOURCE_LISTENER for w in words)
+    assert "mark" not in words[0] and listener_words("a b", 0.0, 1.0, 3)[1]["mark"] == 3
     assert listener_words("   ", 0.0, 1.0) == []
 
 
@@ -100,16 +102,24 @@ def test_same_speaker_gap_takes_the_speaker() -> None:
     for line in doc["lines"]:
         line["speaker"] = "speaker_00"
     revised = apply_resolutions(doc, _resolutions(doc, m0=("text", "indeed")))
-    listener = [l for l in revised["lines"] if l.get("src") == SOURCE_LISTENER][0]
-    assert listener["speaker"] == "speaker_00"
+    # The same voice either side: the words join the end of the line before the gap.
+    assert not [l for l in revised["lines"] if l.get("src") == SOURCE_LISTENER]
+    first = revised["lines"][0]
+    assert first["text"] == "good morning this is the first call indeed"
+    assert first["words"][-1]["src"] == SOURCE_LISTENER and first["words"][-1]["mark"] == 0
+    assert first["end"] == pytest.approx(doc["marks"][0]["span_end"]) and first["start"] == doc["lines"][0]["start"]
+    assert text_runs(first) == [("good morning this is the first call", False), ("indeed", True)]
+    assert revised["marks"][0]["resolution"]["speaker"] == "speaker_00"
     assert [s for s in revised["speakers"] if s["label"] == "speaker_00"][0]["words"] == sum(len(l["words"]) for l in revised["lines"] if l["speaker"] == "speaker_00")
+    assert strip_listener(revised)["lines"] == doc["lines"]
 
 
 def test_reviewed_note() -> None:
     doc = make_document("call.wav")
     assert reviewed_note(doc) is None
     revised = apply_resolutions(doc, _resolutions(doc, m0=("text", "yes"), m1=("nothing", "")))
-    assert reviewed_note(revised) == "Reviewed by a listener: 2 spans checked; 1 carries words typed after listening, shown as heard on review."
+    assert reviewed_note(revised) == "Reviewed by a listener: 2 spans checked; 1 carries words typed after listening, marked as the listener's."
+    assert reviewed_note(revised, marked="in braces").endswith("marked in braces.")
     partial = apply_resolutions(doc, _resolutions(doc, m1=("nothing", "")))
     assert reviewed_note(partial) == "Reviewed by a listener: 1 span checked; 1 still open."
     assert reviewed_note(apply_resolutions(doc, _resolutions(doc))) is None
@@ -167,8 +177,8 @@ def _one_speaker_document() -> dict:
     }
 
 
-def test_words_inside_a_line_split_it_and_take_its_speaker() -> None:
-    from twinscribe.amend import containing_line, split_line_at
+def test_words_inside_a_line_join_it_at_the_gap() -> None:
+    from twinscribe.amend import containing_line, listener_line_for, split_line_at
 
     doc = _one_speaker_document()
     assert containing_line(doc["lines"], 3.5, 4.5) is doc["lines"][0]
@@ -178,23 +188,30 @@ def test_words_inside_a_line_split_it_and_take_its_speaker() -> None:
     assert pieces[0]["end"] == 3.5 and pieces[1]["start"] == 4.5
     revised = apply_resolutions(doc, [{"status": "text", "note": "hold on"}])
     lines = revised["lines"]
-    assert [line.get("src") for line in lines] == [None, SOURCE_LISTENER, None]
-    assert lines[1]["speaker"] == "a" and lines[1]["text"] == "hold on"
-    assert lines[0]["text"] == "the car went there" and lines[2]["text"] == "and then it left"
-    engine_words = [w["w"] for line in lines if line.get("src") != SOURCE_LISTENER for w in line["words"]]
-    assert engine_words == [w["w"] for w in doc["lines"][0]["words"]]
-    # The seconds of the pause are counted once, for the listener's line, not twice.
+    # The words read in the line where they were said; the line is neither split nor doubled.
+    assert len(lines) == 1 and lines[0].get("src") is None and lines[0]["speaker"] == "a"
+    assert lines[0]["text"] == "the car went there hold on and then it left"
+    assert [w.get("src") for w in lines[0]["words"]] == [None] * 4 + [SOURCE_LISTENER] * 2 + [None] * 4
+    assert lines[0]["words"][4]["s"] == pytest.approx(3.5) and lines[0]["words"][5]["e"] == pytest.approx(4.5)
+    assert lines[0]["words"][4]["mark"] == 0 and lines[0]["start"] == 0.5 and lines[0]["end"] == 8.0
+    assert text_runs(lines[0]) == [("the car went there", False), ("hold on", True), ("and then it left", False)]
+    assert listener_line_for(revised, 0) is lines[0]
     table = {s["label"]: s for s in revised["speakers"]}
-    assert table["a"]["words"] == 10 and table["a"]["seconds"] == pytest.approx((3.5 - 0.5) + (8.0 - 4.5) + 1.0)
+    assert table["a"]["words"] == 10 and table["a"]["seconds"] == pytest.approx(7.5)
     assert revised["marks"][0]["resolution"] == {"status": "text", "note": "hold on", "speaker": "a"}
-    # Taking the listener's line out joins the pieces again, as they were.
-    cleared = strip_listener(revised)
-    assert len(cleared["lines"]) == 1 and cleared["lines"][0]["end"] == 8.0 and "split_from" not in cleared["lines"][0]
-    assert cleared["lines"][0]["text"] == doc["lines"][0]["text"]
+    # Taking the listener's words out leaves the line as it was; applying again replaces them.
+    assert strip_listener(revised)["lines"] == doc["lines"]
     again = apply_resolutions(revised, [{"status": "text", "note": "hold on"}])
-    assert [line.get("src") for line in again["lines"]] == [None, SOURCE_LISTENER, None]
+    assert len(again["lines"]) == 1 and again["lines"][0]["text"] == lines[0]["text"]
     reopened = apply_resolutions(revised, [{"status": "open", "note": ""}])
-    assert len(reopened["lines"]) == 1 and reopened["lines"][0]["text"] == doc["lines"][0]["text"]
+    assert reopened["lines"] == doc["lines"]
+    # Another speaker's words inside the line split it around the gap and stand on their own.
+    other = apply_resolutions(doc, [{"status": "text", "note": "hold on", "speaker": "b"}])
+    assert [(line.get("src"), line["speaker"], line["text"]) for line in other["lines"]] == [
+        (None, "a", "the car went there"), (SOURCE_LISTENER, "b", "hold on"), (None, "a", "and then it left"),
+    ]
+    assert listener_line_for(other, 0) is other["lines"][1]
+    assert strip_listener(other)["lines"] == doc["lines"]
 
 
 def test_a_chosen_speaker_is_kept_and_seeds_a_later_pass() -> None:
@@ -202,12 +219,17 @@ def test_a_chosen_speaker_is_kept_and_seeds_a_later_pass() -> None:
 
     doc = make_document("call.wav")
     chosen = apply_resolutions(doc, [{"status": "text", "note": "yes", "speaker": "speaker_01"}, {"status": "open", "note": ""}])
+    # The second speaker's line follows the gap, so the words open that line.
     line = listener_line_for(chosen, 0)
-    assert line is not None and line["speaker"] == "speaker_01" and line["text"] == "yes"
+    assert line is not None and line["speaker"] == "speaker_01" and line.get("src") is None
+    assert line["text"] == "yes you can start now" and line["words"][0]["src"] == SOURCE_LISTENER
+    assert line["start"] == pytest.approx(doc["marks"][0]["span_start"])
     assert chosen["marks"][0]["resolution"] == {"status": "text", "note": "yes", "speaker": "speaker_01"}
     assert listener_line_for(chosen, 1) is None
+    # Without a speaker the words belong to neither line and stand on their own.
     none = apply_resolutions(doc, [{"status": "text", "note": "yes", "speaker": ""}, {"status": "open", "note": ""}])
-    assert listener_line_for(none, 0)["speaker"] is None and none["marks"][0]["resolution"]["speaker"] == ""
+    assert listener_line_for(none, 0)["speaker"] is None and listener_line_for(none, 0)["src"] == SOURCE_LISTENER
+    assert none["marks"][0]["resolution"]["speaker"] == ""
     # What the document records seeds a pass whose session file is gone.
     assert resolutions_from_document(chosen) == [{"status": "text", "note": "yes", "speaker": "speaker_01"}, {"status": "open", "note": ""}]
     assert resolutions_from_document(doc) == [{"status": "open", "note": ""}, {"status": "open", "note": ""}]

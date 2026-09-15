@@ -228,7 +228,7 @@ def test_shorten_progress_and_hint() -> None:
     mark = verify._mark_from_dict(MARKS[0])
     hint = verify.hint_text(mark)
     assert hint.startswith('Starts from what the second engine heard: "yes I am here".')
-    assert hint.endswith("marked heard on review.")
+    assert hint.endswith("marked as the listener's.")
     silent = verify._mark_from_dict({**MARKS[0], "detector_text": ""})
     assert verify.hint_text(silent).startswith("The second engine recorded no text here.")
 
@@ -660,7 +660,7 @@ def test_every_resolution_is_written_into_the_transcript(app: QApplication, tmp_
     assert len(listener) == 1 and listener[0]["text"] == "yes I am here"
     assert listener[0]["start"] == pytest.approx(review.marks[0].span_start)
     assert revised["marks"][0]["resolution"] == {"status": "text", "note": "yes I am here", "speaker": ""}
-    assert "(heard on review): yes I am here" in paths.text.read_text(encoding="utf-8")
+    assert "Unknown speaker: {yes I am here}" in paths.text.read_text(encoding="utf-8")
     assert "Transcript written: 1 span with the listener's words, 0 silent, 1 still open" in window.status_label.text()
     assert len(changed) == 1 and changed[0]["review_applied"]["text"] == 1
     # A span resolved as silent is written too, as the mark's resolution.
@@ -683,7 +683,7 @@ def test_every_resolution_is_written_into_the_transcript(app: QApplication, tmp_
     cleared = load_document(paths.transcript)
     assert not [line for line in cleared["lines"] if line.get("src") == "listener"]
     assert "resolution" not in cleared["marks"][0] and cleared["review_applied"]["open"] == 1
-    assert "heard on review" not in paths.text.read_text(encoding="utf-8").split("Transcript", 1)[1]
+    assert "{" not in paths.text.read_text(encoding="utf-8").split("Transcript", 1)[1]
     assert window.status_label.text().startswith("Mark 1 is open again. Transcript written: 0 spans")
     assert window.apply_to_transcript() is not None
     window.close()
@@ -821,6 +821,6 @@ def test_an_output_held_by_another_program_does_not_hide_the_write(app: QApplica
     status = window.status_label.text()
     assert len(changed) == 1 and status.startswith('Mark 1: "yes"')
     assert "Transcript written: 1 span" in status and "could not write the Word document (call.docx" in status
-    assert "(heard on review): yes" in paths.text.read_text(encoding="utf-8")
+    assert "{yes}" in paths.text.read_text(encoding="utf-8")
     assert window.done_count() == 1
     window.close()

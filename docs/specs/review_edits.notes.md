@@ -72,3 +72,30 @@ observed.
 - The header of the text and Word outputs says when every mark has been checked, rather than
   that speech may still be missing; a subtitle cue of the listener's words carries the mark in
   its prefix, as every other output does.
+
+## The words in the line
+
+- Found by the owner on a one-reader chapter, reading the transcript after a review: the
+  words kept for a gap stood as a line of their own between two lines of the same reader,
+  with its own time and a "(heard on review)" tag, and the sentence around the gap read in
+  three pieces. With the words already in the lines on either side (an echo of the bordering
+  words, `review.notes.md`), the same words stood twice. The report: the review should
+  correct the lines the engine wrote rather than insert orphan lines that break the reader's
+  comprehension of what was said.
+- The kept words now go into the transcript where the gap is. Inside an engine line, at the
+  gap, without splitting the line; between lines, at the end of the line before the gap when
+  that line's speaker is the words' speaker, else at the start of the line after it when that
+  line's is. Only when neither neighbour is the speaker's do the words form a line of their
+  own, as when the speakers differ on either side and none is chosen, or the listener names a
+  third; and a named speaker other than the one whose line the gap falls inside still splits
+  that line, since one voice's words cannot sit inside another's line. Every listener word
+  carries its source and the number of its mark, so a changed or reopened resolution takes
+  exactly those words out and the lines return to what the engine wrote.
+- The provenance moved from the line to the words: the text output puts the listener's words
+  in braces, the Word document sets them in italics, the pane shows them in the success colour
+  and italics, and the header sentence of the text and Word outputs names the marking. The
+  "(heard on review)" tag after the speaker's name is gone from lines, since a line can now be
+  the engine's with the listener's words inside; a subtitle cue of a line of the listener's
+  own keeps its prefix.
+- The screen's status line still names the speaker the words were given, from the line that
+  holds them; the captions say the words go into the line where the gap is.

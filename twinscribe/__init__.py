@@ -5,4 +5,4 @@ silence. The Whisper engine is never published; it marks the spans where it hear
 the published engine heard nothing, and those marks are what a person listens to.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
