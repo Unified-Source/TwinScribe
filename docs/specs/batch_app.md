@@ -167,8 +167,9 @@ transcript recording that its word times are approximate.
 ## 6. The window, top to bottom
 
 1. Top bar: the name, Open files, Open folder, the quality level, the speaker count (Auto, or
-   a number when it is known; section 3), Transcribe (primary), Stop while a batch runs,
-   settings.
+   a number when it is known; section 3), the recording kind that sets the clustering
+   threshold (two or a few voices, or a long recording or meeting; section 3), Transcribe
+   (primary), Stop while a batch runs, settings.
 2. A horizontal splitter:
    - left, the library: one row per recording with a state glyph (not transcribed, queued,
      running with a progress ring and bar, done with a tick, failed with a warning), its name,
