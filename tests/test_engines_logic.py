@@ -244,6 +244,32 @@ def test_group_words_bare_marker_between_words_is_dropped():
     assert _spans(words) == [("a", 0.0, 0.4), ("b", 0.4, 1.0)]
 
 
+def test_group_words_with_durations_ends_each_word_where_its_last_token_ends():
+    # hello: tokens at 0.1 (0.08) and 0.2 (0.16) end at 0.36; world: 0.5 + 0.24 = 0.74, under
+    # the segment end. What the model emitted nothing for, 0.36 to 0.5 and 0.74 to 1.0, is
+    # between the words, not inside them.
+    words = parakeet.group_words(
+        [" hel", "lo", " world"], [0.1, 0.2, 0.5], segment_end=1.0, durations=[0.08, 0.16, 0.24]
+    )
+    assert _spans(words) == [("hello", 0.1, 0.36), ("world", 0.5, 0.74)]
+
+
+def test_group_words_durations_never_pass_the_next_word_or_the_segment_end():
+    words = parakeet.group_words([" a", " b"], [0.0, 0.1], segment_end=0.3, durations=[0.5, 0.5])
+    assert _spans(words) == [("a", 0.0, 0.1), ("b", 0.1, 0.3)]
+
+
+def test_group_words_zero_or_missing_durations_count_as_one_frame():
+    words = parakeet.group_words([" a", " b", " c"], [0.0, 0.5, 1.0], segment_end=2.0, durations=[0.0])
+    frame = parakeet.FRAME_S
+    assert _spans(words) == [("a", 0.0, frame), ("b", 0.5, 0.5 + frame), ("c", 1.0, 1.0 + frame)]
+
+
+def test_group_words_durations_are_shifted_by_the_offset():
+    words = parakeet.group_words([" a"], [0.25], segment_end=1.0, offset=10.0, durations=[0.16])
+    assert _spans(words) == [("a", 10.25, 10.41)]
+
+
 def test_group_words_first_token_without_marker_opens_a_word():
     words = parakeet.group_words(["hel", "lo", " x"], [0.0, 0.1, 0.3], segment_end=0.4)
     assert _spans(words) == [("hello", 0.0, 0.3), ("x", 0.3, 0.4)]

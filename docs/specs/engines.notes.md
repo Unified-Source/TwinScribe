@@ -198,6 +198,24 @@ lock. Nothing in the three wrappers needed changing to run live.
     fails the recording: the failure goes into the run record, the scenes fall back to the
     level alone, and the transcript is published, as a speaker-labelling failure already was.
 
+24. **Word ends from the model's durations.** Until now a published word ended at the next
+    word's start, or at its utterance's end, because the wrapper took only the token start
+    times from the library. So inside one voice-detector segment the words tiled the whole
+    segment, and audio the transducer emitted nothing for was absorbed into the word before
+    it: the review list, which marks published-silent spans, could see a dropped stretch only
+    where the voice detector had also cut. On the court argument's twelve-second collision of
+    two justices, the desktop run published "as well." as a two-second word covering
+    "General, can I -- / So, General, maybe --" and "ahead." as a 1.8 s word covering both
+    "No, no, no"s and "Allow your voice a minute", and raised no mark, with the checker's
+    words sitting right there. The model is a token-and-duration transducer and the library
+    returns its per-token durations (multiples of the 80 ms frame); a word now ends where its
+    last-ending token ends, at least one frame after its start and never past the next word's
+    start or the segment end, so the skipped audio lies between words as published silence.
+    Without durations the old rule stands. The change moves every word end in the transcript
+    and subtitles earlier by the pause that followed it, and widens what the review list and
+    the Laptop level's targeted checking can see; the design's telephone and meeting tables
+    are to be measured again on the bench before this is relied on.
+
 ## The speaker stage and the window
 
 - Found by the owner on the first public build: at the speaker stage the window stopped

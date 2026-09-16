@@ -167,6 +167,11 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-15, word ends from the model's durations.** A published word ended at the next
+  word's start, so audio the transducer skipped inside an utterance was absorbed into the word
+  before it and the review list could not see it. The transducer's own per-token durations
+  now end each word, and the skipped audio lies between words as published silence, where
+  the review list looks. The accuracy tables are to be measured again on the bench.
 - **2026-09-15, the tagger's limits.** A recording of an hour and three quarters failed at the
   scene pass after both engines had finished, because the audio tagger's model accepts at most
   thirty seconds of input and an utterance was tagged whole; a speaker who went longer than

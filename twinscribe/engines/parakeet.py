@@ -29,6 +29,9 @@ ENGINE_NAME = "parakeet_tdt"
 MODEL_TYPE = "nemo_transducer"
 WORD_MARKER = " "
 FEATURE_DIM = 80
+# The model's frame: token times and durations come in multiples of it, and a token the
+# decoder gave no duration still occupies one frame.
+FRAME_S = 0.08
 
 # Candidate file names per model part, in order of preference. The int8 export is preferred
 # because it is the form the design measured; the fp32 names are accepted as a fallback.
@@ -140,40 +143,56 @@ def group_words(
     timestamps: Sequence[float],
     segment_end: float,
     offset: float = 0.0,
+    durations: Sequence[float] | None = None,
 ) -> list[Word]:
     """Group per-token output into words using the leading-space word marker.
 
     A token that begins with the marker starts a new word; the marker is stripped. A token
     that is the marker alone starts an empty word, which is kept only if continuation
     tokens follow it and dropped otherwise. A token with no marker continues the current
-    word, or starts one when no word is open. A word starts at its first token's time and
-    ends at the next kept word's start, or at the segment end. Times are shifted by offset
-    (the utterance's position in the recording). Missing trailing timestamps repeat the last
-    known time so that a short timestamp list cannot lose tokens.
+    word, or starts one when no word is open. A word starts at its first token's time. With
+    durations, the model's own per-token durations, it ends where its last-ending token ends
+    (the token's time plus its duration, at least one frame), never later than the next kept
+    word's start or the segment end; so the audio the model emitted nothing for lies between
+    words rather than inside the word before it. Without durations a word ends at the next
+    kept word's start, or at the segment end. Times are shifted by offset (the utterance's
+    position in the recording). Missing trailing timestamps repeat the last known time so
+    that a short timestamp list cannot lose tokens; missing durations count as one frame.
     """
     if not tokens:
         return []
     times = _padded_times(timestamps, len(tokens), fallback=0.0)
-    groups: list[tuple[str, float]] = []
+    spans = None
+    if durations is not None:
+        spans = [float(d) for d in list(durations)[: len(tokens)]]
+        spans += [FRAME_S] * (len(tokens) - len(spans))
+    groups: list[tuple[str, float, float | None]] = []
     current_text: str | None = None
     current_start = 0.0
-    for token, stamp in zip(tokens, times):
+    current_end: float | None = None
+    for index, (token, stamp) in enumerate(zip(tokens, times)):
+        token_end = None if spans is None else float(stamp) + max(float(spans[index]), FRAME_S)
         if token.startswith(WORD_MARKER) or current_text is None:
             if current_text:
-                groups.append((current_text, current_start))
+                groups.append((current_text, current_start, current_end))
             current_text = token[len(WORD_MARKER):] if token.startswith(WORD_MARKER) else token
             current_start = float(stamp)
+            current_end = token_end
         else:
             current_text += token
+            if token_end is not None and current_end is not None:
+                current_end = max(current_end, token_end)
     if current_text:
-        groups.append((current_text, current_start))
+        groups.append((current_text, current_start, current_end))
 
     words: list[Word] = []
-    for index, (text, start) in enumerate(groups):
+    for index, (text, start, own_end) in enumerate(groups):
         if index + 1 < len(groups):
             end = groups[index + 1][1]
         else:
             end = float(segment_end)
+        if own_end is not None:
+            end = min(end, own_end)
         end = max(end, start)
         words.append(Word(text=text, start=start + offset, end=end + offset, prob=None))
     return words
@@ -318,11 +337,13 @@ def transcribe(
             recognizer.decode_stream(stream)
             result = stream.result
             decode_s += time.perf_counter() - decode_start
+            durations = getattr(result, "durations", None)
             words = group_words(
                 list(result.tokens),
                 list(result.timestamps),
                 segment_end=length_s,
                 offset=start_s,
+                durations=list(durations) if durations else None,
             )
             segment = segment_from_words(words, start_s, start_s + length_s)
             segments.append(segment)
