@@ -341,6 +341,25 @@ def test_missing_backend_library_is_a_clear_error(recording: Path, models, tmp_p
         )
 
 
+def test_a_failing_tagger_leaves_the_scenes_to_the_level_and_publishes(recording: Path, models, tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    def tagger(path, model_dir, regions, threads=None, provider="cpu", top_k=8, progress=None, **kwargs):
+        raise RuntimeError("Non-zero status code returned while running Add node")
+
+    engines = replace(make_engines(), tagger=tagger)
+    result = process_file(job_for(recording, models, tmp_path), engines=engines)
+    # The transcript and every output are still written; the failure is on the record.
+    assert result.outputs.text.is_file() and result.document is not None
+    failures = result.run_record["failures"]
+    assert [f["error_class"] for f in failures] == ["RuntimeError"]
+    assert failures[0]["message"].startswith("scene tagging: Non-zero status code")
+    doc = result.document
+    assert doc["non_speech"]["tagged"] is False
+    assert [s["kind"] for s in doc["scenes"]] == ["sound"] * 4
+    assert result.run_record["settings"]["scenes"]["tagger_model"] is None
+
+
 def test_scenes_mark_non_speech_and_set_words_aside(recording: Path, models, tmp_path: Path) -> None:
     from twinscribe.scenes import Event
 

@@ -621,7 +621,15 @@ def process_file(
                 return tagging_result.events
 
             tag_fn = tag_with_model
-        analysis: Analysis = analyse(samples, published.segments, audio_s, tag_fn)
+        failures: list[Failure] = []
+        try:
+            analysis: Analysis = analyse(samples, published.segments, audio_s, tag_fn)
+        except Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - recorded; the scenes fall back to the level alone
+            failures.append(Failure(str(source), type(exc).__name__, f"scene tagging: {exc}"))
+            tagging_result = None
+            analysis = analyse(samples, published.segments, audio_s, None)
         published_kept = without_segments(published, analysis.suppressed)
         detector_words = words_outside(detector.words, analysis.scenes)
         reporter.report("scenes", 1.0)
@@ -630,7 +638,6 @@ def process_file(
         threshold = float(job.threshold) if job.threshold is not None else profile.diarization_threshold
         diarization: Diarization | None = None
         speaker_failure: str | None = None
-        failures: list[Failure] = []
         if engine_set.diarizer is not None:
             try:
                 diarization = engine_set.diarizer(

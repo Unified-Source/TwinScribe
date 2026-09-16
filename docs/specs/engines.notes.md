@@ -183,6 +183,21 @@ lock. Nothing in the three wrappers needed changing to run live.
     the keep threshold sits at 0.3; a one-word utterance of a third of a second tagged Music at
     0.47, which is why no utterance under one and a half seconds is judged.
 
+23. **The model's input limits, found on a long recording.** A public-domain court argument
+    of an hour and three quarters failed at the scene pass, twice, after both engines had
+    finished: the tagger's ONNX graph refused a region with a broadcast error (`/Add`, 187 by
+    190). Probing the model with slices of the recording at every length from 10 ms to 90 s
+    located the limits exactly: an input shorter than 0.16 s fails in the patch embedding, and
+    an input longer than thirty seconds fails at the positional embedding, whose 187 time
+    patches cover thirty seconds; every length between passes. The pauses between utterances
+    were already cut into ten-second windows, but an utterance was tagged whole, and a speaker
+    who went more than thirty seconds without a pause broke the run. Now a region longer than
+    thirty seconds is tagged in equal pieces no longer than that, its events each class at its
+    highest probability across the pieces (so an utterance is judged free of speech only when
+    every piece was), and no region under 0.2 s is tagged. And a tagger that fails no longer
+    fails the recording: the failure goes into the run record, the scenes fall back to the
+    level alone, and the transcript is published, as a speaker-labelling failure already was.
+
 ## The speaker stage and the window
 
 - Found by the owner on the first public build: at the speaker stage the window stopped

@@ -27,8 +27,13 @@ ENGINE_NAME = "ced_audio_tagging"
 MODEL_FILE = "model.int8.onnx"
 LABELS_FILE = "class_labels_indices.csv"
 DEFAULT_TOP_K = 8
-# A region shorter than this is not tagged; the model's front end needs a few frames.
-MIN_REGION_S = 0.1
+# A region shorter than this is not tagged; the model's front end needs a few frames, and an
+# input under 0.16 s fails in its patch embedding.
+MIN_REGION_S = 0.2
+# A region longer than this is tagged in equal pieces no longer than it, and its events are
+# each class at its highest probability across the pieces. The export's positional embedding
+# covers 187 time patches, thirty seconds of audio; a longer input fails inside the model.
+MAX_REGION_S = 30.0
 REPORT_EVERY = 20
 
 
@@ -57,6 +62,36 @@ def resolve_model_files(model_dir: str | os.PathLike[str]) -> dict[str, Path]:
     if missing:
         raise FileNotFoundError(f"audio tagging model directory {directory} lacks: {', '.join(missing)}")
     return files
+
+
+def pieces(lo: int, hi: int, max_samples: int) -> list[tuple[int, int]]:
+    """Cut the sample span [lo, hi) into equal pieces of at most max_samples, in order; a span
+    that fits is one piece."""
+    if max_samples <= 0:
+        raise ValueError(f"max_samples must be positive, got {max_samples}")
+    length = max(0, hi - lo)
+    if length == 0:
+        return []
+    count = max(1, -(-length // max_samples))
+    step = length / count
+    return [
+        (lo + int(round(index * step)), hi if index == count - 1 else lo + int(round((index + 1) * step)))
+        for index in range(count)
+    ]
+
+
+def merge_events(per_piece: Sequence[Sequence[Event]], top_k: int) -> tuple[Event, ...]:
+    """The events of a region tagged in pieces: each class at its highest probability across
+    the pieces, in descending probability (ties by name), the top_k kept. A class the tagger
+    heard in any piece is kept at that strength, so a region is judged free of speech only when
+    every piece was."""
+    best: dict[str, float] = {}
+    for events in per_piece:
+        for event in events:
+            if event.prob > best.get(event.name, float("-inf")):
+                best[event.name] = event.prob
+    ordered = sorted(best.items(), key=lambda item: (-item[1], item[0]))
+    return tuple(Event(name=name, prob=prob) for name, prob in ordered[:top_k])
 
 
 def _build_tagger(sherpa_onnx: Any, files: dict[str, Path], threads: int, top_k: int, provider: str) -> Any:
@@ -112,10 +147,13 @@ def tag_regions(
         if hi - lo < int(MIN_REGION_S * SAMPLE_RATE):
             events.append(())
         else:
-            stream = tagger.create_stream()
-            stream.accept_waveform(SAMPLE_RATE, np.ascontiguousarray(samples[lo:hi], dtype=np.float32))
-            found = tagger.compute(stream)
-            events.append(tuple(Event(name=str(e.name), prob=float(e.prob)) for e in found))
+            per_piece: list[tuple[Event, ...]] = []
+            for piece_lo, piece_hi in pieces(lo, hi, int(MAX_REGION_S * SAMPLE_RATE)):
+                stream = tagger.create_stream()
+                stream.accept_waveform(SAMPLE_RATE, np.ascontiguousarray(samples[piece_lo:piece_hi], dtype=np.float32))
+                found = tagger.compute(stream)
+                per_piece.append(tuple(Event(name=str(e.name), prob=float(e.prob)) for e in found))
+            events.append(per_piece[0] if len(per_piece) == 1 else merge_events(per_piece, top_k))
         if progress is not None and (index + 1) % REPORT_EVERY == 0:
             progress((index + 1) / len(regions))
     tag_s = time.perf_counter() - tag_start

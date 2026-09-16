@@ -167,6 +167,12 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-15, the tagger's limits.** A recording of an hour and three quarters failed at the
+  scene pass after both engines had finished, because the audio tagger's model accepts at most
+  thirty seconds of input and an utterance was tagged whole; a speaker who went longer than
+  that without a pause broke the run. A long utterance is now tagged in pieces and its events
+  merged, no region under 0.2 s is tagged, and a tagger that fails is recorded in the run
+  record while the scenes fall back to the level alone and the transcript is published.
 - **2026-09-15, a site.** The project's page at [twinscribe.app](https://twinscribe.app): the
   claim, the two engines and what was measured, a transcript as the window shows it, the window
   in use, the ways to install; assembled from `site/` by `tools/build_site.py` with the pictures
