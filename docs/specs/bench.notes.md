@@ -145,3 +145,27 @@ the same pass, one after the other, on the 24 pinned telephone calls (1,446 s of
 - **Not done.** No arm on the meeting set: an hour of meeting audio on the processor was not
   worth the wait for a level meant for telephone material. The ONNX checker has no clip
   path, so on that backend the Laptop level decodes everything, as its record says.
+
+## Word ends from the transducer's durations, measured
+
+The review list under the word-end rule of `engines.notes.md` (24), on the desktop, in the
+run folder `2026-09-15_durations`: the folder `2026-09-15_echoes` copied, its transducer
+records dropped and decoded again by the new rule, its checker records kept, the review
+variant rescored on the telephone and meeting items. The transducer's word error is identical
+on every item, as it must be when only the word ends move.
+
+- **Telephone set, 24 calls:** 29 marks, 29 on speech, 143 dropped words covered, 10.5 per
+  cent of the audio to review under the old rule; **31 marks, 31 on speech, 144 covered, 10.9
+  per cent** under the new one. Neutral: two more marks, both on speech.
+- **Meeting set, 4 items:** 85 marks, 65 on speech (76 per cent), 517 covered, 25.6 per cent
+  under the old rule; **100 marks, 80 on speech (80 per cent), 629 covered, 28.0 per cent**
+  under the new one. Fifteen more marks, every one on speech, 112 more dropped words covered,
+  for 2.4 points more listening. No item in either set gained an off-speech mark.
+- The count of dropped words is taken against the published word spans (the report marks it
+  approximate), so it rises when the spans shorten: 254 to 265 on the calls, 653 to 922 on the
+  meetings. The comparable figures are the marks, the marks on speech, the words covered and
+  the audio to review; the covered fraction is not comparable across the two rules.
+- The recording that found the rule, a court argument of an hour and three quarters with a
+  twelve-second collision of two justices: 14 marks and none on the collision under the old
+  rule; 52 marks under the new one, the 14 kept, and two on the collision whose hints read
+  "General, can I ask you a question?" and "No, no, no. No, no, no. Go ahead."

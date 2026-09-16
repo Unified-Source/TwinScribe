@@ -213,8 +213,9 @@ lock. Nothing in the three wrappers needed changing to run live.
     start or the segment end, so the skipped audio lies between words as published silence.
     Without durations the old rule stands. The change moves every word end in the transcript
     and subtitles earlier by the pause that followed it, and widens what the review list and
-    the Laptop level's targeted checking can see; the design's telephone and meeting tables
-    are to be measured again on the bench before this is relied on.
+    the Laptop level's targeted checking can see. Measured on the bench (`bench.notes.md`,
+    the last section): neutral on the telephone set, fifteen more marks on the meeting set,
+    every one on speech, with no item gaining an off-speech mark.
 
 ## The speaker stage and the window
 
