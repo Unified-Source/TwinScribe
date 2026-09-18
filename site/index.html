@@ -186,8 +186,22 @@
 <section id="install" class="section">
   <h2>Installing</h2>
   <p>Three ways, from the least effort to the most. All three run offline once the models are in
-  place; none needs administrator rights.</p>
+  place; none needs administrator rights, and none installs anything.</p>
   <ol class="ways">
+    <li>
+      <h3>The portable folder <span class="platform">Windows</span></h3>
+      <p>Download <code>twinscribe-portable-win64-part1.zip</code> and
+      <code>twinscribe-portable-win64-part2.zip</code> (1.2 GB and 1.6 GB) from the Releases page,
+      and <code>twinscribe-portable-win64-cuda.zip</code> (1.4 GB) as well for a machine with an
+      NVIDIA device.
+      Unzip the first anywhere; put the others inside the <code>twinscribe-portable</code> folder
+      it gives, next to <code>twinscribe-app.cmd</code>, without unzipping them; double-click
+      <code>twinscribe-app.cmd</code>. The first start unpacks the parts placed beside it, once,
+      then opens the window; nothing is fetched. The folder holds its own interpreter, every
+      library, the decoder, the models of the Standard level and a <code>home</code> folder for
+      settings and records, so two copies never share state and the folder runs from any drive.
+      Windows may warn on the first start that the launcher came from the internet.</p>
+    </li>
     <li>
       <h3>The executables <span class="platform">Windows</span></h3>
       <p>Download <code>twinscribe-win64.zip</code>, unzip it anywhere and double-click
@@ -197,13 +211,6 @@
       <code>models</code> folder beside the executables, recording every file's digest; after that
       nothing in the program reaches the network. The executables are not signed, so Windows may
       warn that they come from an unknown publisher.</p>
-    </li>
-    <li>
-      <h3>The portable folder <span class="platform">Windows</span></h3>
-      <p>Assembled from a checkout with the models inside, because it is larger than a release
-      asset may be. It holds its own interpreter, every library, the decoder, the models and a
-      <code>home</code> folder for settings and records, so nothing is installed and two copies
-      never share state.</p>
     </li>
     <li>
       <h3>From source <span class="platform">Windows, Linux, macOS</span></h3>

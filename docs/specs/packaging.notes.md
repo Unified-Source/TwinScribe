@@ -22,6 +22,26 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
   to a person can drop that folder. Checked through its own launcher: `--version`, `check`
   (the Standard level offered, the device seen), the window opened on a recording through
   `twinscribe.cmd app --shot`, and the settings written under the folder's own `home`.
+- The parts, 2026-09-18, from the same wheel set and the Standard level's models: the first
+  1.17 GB (6,468 files), the second 1.62 GB (the checker's five files, stored), the third
+  1.36 GB (the CUDA packages, 55 files); each well under the two-gibibyte limit. Checked on
+  the desktop with an NVIDIA device, through the launchers only: the assembled folder gives
+  its version and its check; the first part unzipped as a person would (54 s through the
+  platform's own extraction) gives a folder whose check names the checker absent and no
+  level; with the second and third parts put inside, the first start unpacked both and ran
+  the check in 24 s, the parts renamed `.unpacked`, all six models present, the levels
+  Standard and Laptop, the detector planned for the device; the second start took no time
+  on unpacking; `check --verify` found every file of the six models verified; a 654 s chapter
+  transcribed through `twinscribe.cmd run` in 127 s with ten review marks and all six outputs
+  beside it, the batch record and the history under the copy's own `home`; and a copy with
+  the first two parts alone started and checked clean. That copy still planned the detector
+  for the device, because the desktop has the CUDA toolkit installed system-wide and the
+  libraries load from there; the processor-only path of a machine without them was not
+  exercised on this desktop.
+- `check --verify` now digests the models the store holds, whole or in part, rather than
+  every catalogue model: a store with one level's models reported the other five models'
+  files as missing and returned a failure although all of its own files verified, which a
+  portable copy made a certainty.
 - The `check` command now reports the decoder as the pipeline resolves it (the search path, a
   bin folder beside the package, or the bundled executable) rather than the search path alone,
   because the earlier line said "not found" while decoding worked from the bundled copy.
@@ -34,8 +54,25 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
 - A frozen build looks beside its executable for `models` and `home` before the usual places,
   after the environment variables, so that an unpacked folder behaves like the portable one
   without launchers; without those folders it behaves like an installed program.
-- The models are not inside the zip: 2.3 GB for the Standard level alone, and the fetch tool
-  with its lock is the way to get them with their digests and licences recorded.
+- The models are not inside the executables' zip: 2.3 GB for the Standard level alone, and
+  the fetch tool with its lock is the way to get them with their digests and licences recorded.
+- The portable folder is published as parts rather than trimmed to fit one file. A release
+  carries files of at most two gibibytes; the Standard level's models alone are past that, so
+  no single file could hold the folder, and a smaller checker would have been a different
+  product from the one the bench measured. The cut follows what a machine needs: the folder
+  with the published engine and the small models in the first part, the checker's model in
+  the second, the CUDA runtime packages in a third that only a machine with an NVIDIA device
+  wants; the first two parts are the download for the laptops the tool is for.
+- The launchers unpack the parts rather than the person unzipping three archives into one
+  folder. Unzipping the first part gives a folder that starts; the others go inside it as they
+  are, and the first start unpacks them, so no path has to be typed into an extraction dialog.
+  A part unpacked is renamed, not deleted: the file is the person's download, and a stale
+  copy beside the launcher costs a rename to unpack again.
+- Model files are stored in the parts without compression: weights hardly compress, and an
+  unpack of a stored member is a copy, so the second part unpacks in seconds.
+- The wheel set is taken from the folder of an earlier build rather than downloaded again, so
+  that the parts carry the versions the executables and the bench were checked with, and the
+  record lists the same digests.
 
 ## Not done, and why
 
@@ -44,3 +81,5 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
 - No signing of the executables; unsigned binaries draw a warning from Windows on first run.
   Signing needs a certificate and a decision that is not the tool's.
 - Linux and macOS builds are the source path with the same extras, as before.
+- The arm64 portable folder (the ONNX detector only) has not been assembled or packed; the
+  tool plans it, and the pack would carry `whisper-turbo-onnx` in its second part.

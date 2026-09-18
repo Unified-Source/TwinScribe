@@ -45,6 +45,9 @@ Companion to `site.md`. Records what was built, what was checked, and what was l
   controls in view. The MP4 first published was an older run whose top bar carried the mark
   before its redrawing; it was encoded again from the frames of the retaken run, 26 seconds
   at the animated picture's timing, so the clip, its poster and the page show one mark.
+- The install section, 2026-09-18: the portable folder first, as the specification orders the
+  ways, now that its parts are on the Releases page; the paragraph gives the two downloads,
+  the third for an NVIDIA device, and the three steps, and says nothing is fetched.
 - The tour leads and the run follows. A reader who has not opened the repository meets the
   idea before the window: the tour says what the second engine is for before the run shows it
   working, and the run keeps its place beside the description of the window, where a reader
