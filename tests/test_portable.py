@@ -229,9 +229,10 @@ def test_file_version_reads_a_library_and_gives_zeros_for_anything_else(tmp_path
     assert build_portable.file_version(plain) == (0, 0, 0, 0)
     (tmp_path / "short.dll").write_bytes(b"MZ")
     assert build_portable.file_version(tmp_path / "short.dll") == (0, 0, 0, 0)
-    if sys.platform != "win32":
+    root = os.environ.get("SystemRoot")
+    if sys.platform != "win32" or not root:
         pytest.skip("a versioned library to read is only certain on Windows")
-    system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32" / "kernel32.dll"
+    system = Path(root) / "System32" / "kernel32.dll"
     version = build_portable.file_version(system)
     assert version[0] >= 6 and version != (0, 0, 0, 0)
     assert build_portable.version_text(system).count(".") == 3
