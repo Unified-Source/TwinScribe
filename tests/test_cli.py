@@ -9,7 +9,7 @@ import pytest
 
 from tests._fixtures import make_document, make_engines, make_models, make_plan_for
 from twinscribe import __version__, audio, cli, pipeline
-from twinscribe.models import MODELS_ENV
+from twinscribe.models import KEY_PARAKEET_V2, KEY_WHISPER_TURBO, MODELS_ENV, sha256_file, spec_for, write_lock
 from twinscribe.outputs.transcript_doc import write_document
 
 
@@ -54,6 +54,28 @@ def test_check_reports_models_and_levels(tmp_path: Path, monkeypatch: pytest.Mon
     assert "quality levels:  quick, standard, careful" in out and "plan (cpu):" in out
     assert cli.main(["check", "--verify"]) == 1          # present but unpinned files
     assert "unpinned" in capsys.readouterr().out
+
+
+def test_check_verify_covers_the_models_the_store_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A store with one level's models verifies clean: the catalogue models it has no folder
+    for are absent, not missing, and only its own files are digested."""
+    root = tmp_path / "models"
+    entries = {}
+    for key in (KEY_PARAKEET_V2, KEY_WHISPER_TURBO):
+        folder = root / key
+        folder.mkdir(parents=True)
+        for name in spec_for(key).required:
+            (folder / name).write_bytes(key.encode("ascii"))
+            entries[f"{key}/{name}"] = {"sha256": sha256_file(folder / name), "bytes": len(key)}
+    write_lock(root, entries)
+    monkeypatch.setenv(MODELS_ENV, str(root))
+    assert cli.main(["check", "--verify", "--device", "cpu"]) == 0
+    out = capsys.readouterr().out
+    assert "missing" not in out and "unpinned" not in out and out.count("verified") == len(entries)
+    (root / "models.lock.json").unlink()
+    assert cli.main(["check", "--verify", "--device", "cpu"]) == 1
+    out = capsys.readouterr().out
+    assert "missing" not in out and out.count("unpinned") == len(entries)
 
 
 def test_run_without_recordings_or_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

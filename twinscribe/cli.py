@@ -210,7 +210,9 @@ def command_check(args: argparse.Namespace) -> int:
         print("  " + line)
     status = 0
     if args.verify:
-        checks = verify_store(models.root)
+        # The models the store holds, whole or in part: a catalogue model with no folder is not
+        # a store fault, and a store with one level's models must verify clean.
+        checks = verify_store(models.root, tuple(models.present) + tuple(models.incomplete))
         for check in checks:
             print(f"  {check.status:<9} {check.key}/{check.file}  {check.detail}")
         if any(c.status != STATUS_VERIFIED for c in checks):
