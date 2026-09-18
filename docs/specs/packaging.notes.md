@@ -38,6 +38,20 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
   for the device, because the desktop has the CUDA toolkit installed system-wide and the
   libraries load from there; the processor-only path of a machine without them was not
   exercised on this desktop.
+- The C++ runtime, found before publishing: a scan of the 629 libraries and extension modules
+  in the assembled folder for their imports showed `msvcp140.dll` wanted by 204 of them,
+  CTranslate2, onnxruntime, sherpa-onnx and the media libraries among them, with the folder's
+  only copies inside the PySide6 and shiboken6 folders, which the loader searches only once
+  PySide6 has been imported; the embeddable interpreter ships `vcruntime140.dll` and
+  `vcruntime140_1.dll` alone. On the desktop, where the runtime is installed system-wide, the
+  engines loaded from the system copy and every check passed; on a machine that never had it
+  installed they would not have loaded, and installing it needs administrator rights. The
+  build now copies the whole set out of the PySide6 wheel (version 14.44.35211.0, newer than
+  the interpreter's 14.38.33126.1, which it replaces) into the interpreter's folder, which the
+  loader searches for every library's dependencies, and records each file with its version,
+  read from the file's own version resource so that an older copy is never installed over a
+  newer one. Checked by listing the runtime modules a process of the folder has loaded after
+  importing the engines: every one from the folder's `python` folder, none from the system.
 - `check --verify` now digests the models the store holds, whole or in part, rather than
   every catalogue model: a store with one level's models reported the other five models'
   files as missing and returned a failure although all of its own files verified, which a

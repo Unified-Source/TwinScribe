@@ -11,6 +11,9 @@ by choice, the outputs beside the recordings.
 twinscribe-portable/
   python/                  the embeddable Windows interpreter, unzipped
   python/python311._pth    adds Lib\site-packages and the parent folder to the import path
+  python/msvcp140.dll ...  the C++ runtime the libraries link against, the set from the
+                           PySide6 wheel, beside the interpreter where the loader finds it
+                           for every module without a runtime installed on the machine
   Lib/site-packages/       every wheel, unpacked: numpy, PySide6, faster-whisper, CTranslate2,
                            sherpa-onnx, onnxruntime and their dependencies
   twinscribe/              this package
@@ -65,7 +68,14 @@ compression, since weights hardly compress and unpacking them is then a copy.
    `--platform`, `--python-version`, `--only-binary` and `--abi abi3` arguments PySide6 needs
    are set for it), or takes a wheel set downloaded earlier when `--wheels` names its folder,
    so that a build repeats the versions a machine was checked with;
-3. unpacks the wheels into `Lib/site-packages` with `pip install --no-deps --target`;
+3. unpacks the wheels into `Lib/site-packages` with `pip install --no-deps --target`, then
+   copies the C++ runtime set (`msvcp140.dll` and its companions) out of the PySide6 wheel
+   into `python/`, because the embeddable interpreter ships only its two `vcruntime140`
+   files and a machine that never had the runtime installed, an installation that needs
+   administrator rights, has none in its system folder; the loader searches the
+   interpreter's folder for every library's dependencies, so one copy there serves every
+   module. A wheel that lacks a file of the set, or whose copy is older than the
+   interpreter's own, fails the build;
 4. copies this package, the models folder given with `--models` (with its lock; `--level`
    cuts it down to the models that quality level needs, with a lock holding their entries
    only), the ffmpeg executable given with `--ffmpeg`, the launchers and `NOTICE`;

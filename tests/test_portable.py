@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -192,6 +193,48 @@ def test_pack_refuses_a_folder_without_the_checker_and_a_part_too_large(tmp_path
     make_folder(folder)
     with pytest.raises(ValueError, match="part1.*over"):
         build_portable.pack(folder, tmp_path / "out", CHECKER, limit=100)
+
+
+def test_copy_runtime_takes_the_wheel_set_into_the_interpreter_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    site = tmp_path / "Lib" / "site-packages"
+    wheel = site / build_portable.RUNTIME_SOURCE
+    wheel.mkdir(parents=True)
+    for name in build_portable.RUNTIME_DLLS:
+        (wheel / name).write_bytes(b"wheel " + name.encode("ascii"))
+    python_dir = tmp_path / "python"
+    python_dir.mkdir()
+    (python_dir / "vcruntime140.dll").write_bytes(b"interpreter")
+    versions = {"wheel": (14, 44, 35211, 0), "interpreter": (14, 38, 33126, 1)}
+    monkeypatch.setattr(build_portable, "file_version", lambda path: versions["wheel" if path.read_bytes().startswith(b"wheel") else "interpreter"])
+    lines = build_portable.copy_runtime(site, python_dir)
+    assert len(lines) == len(build_portable.RUNTIME_DLLS)
+    for name in build_portable.RUNTIME_DLLS:
+        assert (python_dir / name).read_bytes() == b"wheel " + name.encode("ascii")
+    assert all(line.startswith("python/") and "14.44.35211.0" in line for line in lines)
+    # A wheel copy older than the interpreter's is refused rather than installed over it.
+    versions["wheel"] = (14, 30, 0, 0)
+    (python_dir / "vcruntime140.dll").write_bytes(b"interpreter")
+    with pytest.raises(ValueError, match="older"):
+        build_portable.copy_runtime(site, python_dir)
+    # A wheel without the whole set fails the build.
+    (wheel / "concrt140.dll").unlink()
+    versions["wheel"] = (14, 44, 35211, 0)
+    with pytest.raises(FileNotFoundError, match="concrt140"):
+        build_portable.copy_runtime(site, python_dir)
+
+
+def test_file_version_reads_a_library_and_gives_zeros_for_anything_else(tmp_path: Path) -> None:
+    plain = tmp_path / "plain.dll"
+    plain.write_bytes(b"not a library at all")
+    assert build_portable.file_version(plain) == (0, 0, 0, 0)
+    (tmp_path / "short.dll").write_bytes(b"MZ")
+    assert build_portable.file_version(tmp_path / "short.dll") == (0, 0, 0, 0)
+    if sys.platform != "win32":
+        pytest.skip("a versioned library to read is only certain on Windows")
+    system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32" / "kernel32.dll"
+    version = build_portable.file_version(system)
+    assert version[0] >= 6 and version != (0, 0, 0, 0)
+    assert build_portable.version_text(system).count(".") == 3
 
 
 def test_the_plan_names_the_wheel_set_the_level_and_the_parts() -> None:

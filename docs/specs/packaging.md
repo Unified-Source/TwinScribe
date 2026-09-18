@@ -35,8 +35,11 @@ settings go to the per-user application data folder as before.
 
 `tools/build_portable.py` as documented in `Portable_Layout.md`: the embeddable interpreter,
 the wheel set (downloaded, or taken from a folder given so that a build repeats the versions a
-machine was checked with), the package, the models of one quality level with a lock holding
-their entries only, the decoder, the launchers and `RECORD.txt`.
+machine was checked with), the C++ runtime set copied out of the PySide6 wheel into the
+interpreter's folder (the embeddable interpreter ships two of its files; a machine that never
+had the runtime installed has none, and installing it needs administrator rights), the
+package, the models of one quality level with a lock holding their entries only, the decoder,
+the launchers and `RECORD.txt`, which names every runtime file with its version.
 
 A release carries files of at most two gibibytes and the folder with its models is larger, so
 the tool also packs the folder into parts, each under that limit: the first unpacks to the
@@ -64,6 +67,8 @@ The icon at every size with a transparent corner, a filled centre and a bright t
 .ico writer's header and directory arithmetic on small images; the frozen fallbacks with a
 fake `sys.frozen` and executable path; the launchers' contract (the three folders beside
 them, the parts unpacked once, before the start); a store cut down to a level with a lock to
-match; and the split of an assembled folder into parts, with nothing in two parts, nothing
-shipped that should not be, the model files stored, and a part too large or a folder without
-the checker's model refused.
+match; the runtime set copied into the interpreter's folder, a wheel lacking a file or holding
+an older copy refused, and the version reader on a real library and on files that are none;
+and the split of an assembled folder into parts, with nothing in two parts, nothing shipped
+that should not be, the model files stored, and a part too large or a folder without the
+checker's model refused.

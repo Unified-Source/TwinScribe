@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import shutil
+import struct
 import subprocess
 import sys
 import urllib.request
@@ -115,6 +116,26 @@ LAUNCHER_APP = LAUNCHER_HEAD + 'start "" "%HERE%python\\pythonw.exe" -m twinscri
 # Forward slashes are accepted in ._pth entries on Windows.
 PTH_LINES = ("python311.zip", ".", "../Lib/site-packages", "..", "import site")
 
+# The C++ runtime the extension modules and the engine libraries link against. The embeddable
+# interpreter ships its two vcruntime files only, and a machine that never had the runtime
+# installed (an installation that needs administrator rights) has none in its system folder;
+# the PySide6 wheel carries the whole set, and a copy in the interpreter's folder, which the
+# loader searches for every library's dependencies, serves every module in the folder.
+RUNTIME_DLLS: tuple[str, ...] = (
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_codecvt_ids.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "concrt140.dll",
+    "vcomp140.dll",
+)
+RUNTIME_SOURCE = "PySide6"
+NO_VERSION = (0, 0, 0, 0)
+FIXED_FILE_INFO_SIGNATURE = bytes((0xBD, 0x04, 0xEF, 0xFE))
+RT_VERSION = 16
+
 
 @dataclass(frozen=True)
 class Part:
@@ -142,6 +163,86 @@ def download(url: str, target: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "twinscribe-build/0.1"})
     with urllib.request.urlopen(request, timeout=120) as response, open(target, "wb") as handle:
         shutil.copyfileobj(response, handle)
+
+
+def file_version(path: Path) -> tuple[int, int, int, int]:
+    """The file version a Windows executable or library records in its version resource, as
+    four numbers; zeros when the file is not one or carries none. Read from the file itself,
+    so that a build on any platform can compare copies."""
+    data = path.read_bytes()
+    try:
+        header = struct.unpack_from("<I", data, 0x3C)[0]
+        if data[:2] != b"MZ" or data[header:header + 4] != b"PE\0\0":
+            return NO_VERSION
+        section_count = struct.unpack_from("<H", data, header + 6)[0]
+        optional_size = struct.unpack_from("<H", data, header + 20)[0]
+        optional = header + 24
+        magic = struct.unpack_from("<H", data, optional)[0]
+        directories = optional + (112 if magic == 0x20B else 96)
+        resources_rva = struct.unpack_from("<I", data, directories + 8 * 2)[0]
+        sections = []
+        first = optional + optional_size
+        for index in range(section_count):
+            virtual_size, virtual_address, raw_size, raw_offset = struct.unpack_from("<IIII", data, first + 40 * index + 8)
+            sections.append((virtual_address, max(virtual_size, raw_size), raw_offset))
+
+        def offset_of(rva: int) -> int | None:
+            for address, size, raw in sections:
+                if address <= rva < address + size:
+                    return rva - address + raw
+            return None
+
+        def entries(directory: int) -> list[tuple[int, int]]:
+            named, numbered = struct.unpack_from("<HH", data, directory + 12)
+            return [struct.unpack_from("<II", data, directory + 16 + 8 * index) for index in range(named + numbered)]
+
+        base = offset_of(resources_rva)
+        if base is None or not resources_rva:
+            return NO_VERSION
+        for identifier, target in entries(base):
+            if identifier != RT_VERSION or not target & 0x80000000:
+                continue
+            names = entries(base + (target & 0x7FFFFFFF))
+            if not names or not names[0][1] & 0x80000000:
+                return NO_VERSION
+            languages = entries(base + (names[0][1] & 0x7FFFFFFF))
+            if not languages or languages[0][1] & 0x80000000:
+                return NO_VERSION
+            data_rva, size = struct.unpack_from("<II", data, base + languages[0][1])
+            start = offset_of(data_rva)
+            if start is None:
+                return NO_VERSION
+            at = data.find(FIXED_FILE_INFO_SIGNATURE, start, start + size)
+            if at < 0:
+                return NO_VERSION
+            most, least = struct.unpack_from("<II", data, at + 8)
+            return (most >> 16, most & 0xFFFF, least >> 16, least & 0xFFFF)
+    except (struct.error, IndexError):
+        return NO_VERSION
+    return NO_VERSION
+
+
+def version_text(path: Path) -> str:
+    return ".".join(str(part) for part in file_version(path))
+
+
+def copy_runtime(site: Path, python_dir: Path) -> list[str]:
+    """Copy the C++ runtime set from the PySide6 wheel's folder under `site` into the
+    interpreter's folder and return the record lines. A file the wheel lacks fails the build,
+    as does a copy older than the one it would replace, since the interpreter was built
+    against its own and a runtime is only ever replaced by a newer one."""
+    source = site / RUNTIME_SOURCE
+    lines = []
+    for name in RUNTIME_DLLS:
+        candidate = source / name
+        if not candidate.is_file():
+            raise FileNotFoundError(f"{name} is not in {source}; the runtime set is incomplete")
+        target = python_dir / name
+        if target.is_file() and file_version(candidate) < file_version(target):
+            raise ValueError(f"{name} in {source} ({version_text(candidate)}) is older than the interpreter's ({version_text(target)})")
+        shutil.copy2(candidate, target)
+        lines.append(f"python/{name}  {sha256_file(target)}  Microsoft Visual C++ runtime {version_text(target)}, from the {RUNTIME_SOURCE} wheel")
+    return lines
 
 
 def level_keys(level: str, arch: str) -> tuple[str, ...]:
@@ -252,24 +353,25 @@ def plan(args: argparse.Namespace) -> list[str]:
     else:
         wheel_step = f"2. pip download {' '.join(wheels)} for {ARCHITECTURES[args.arch]} / Python {PYTHON_TAG} (abi3 stated) into {out / 'wheels'}"
     if args.models and args.level:
-        models_step = f"5. copy the models of the {args.level} level from {args.models}, with a lock holding their entries"
+        models_step = f"6. copy the models of the {args.level} level from {args.models}, with a lock holding their entries"
     elif args.models:
-        models_step = f"5. copy every model from {args.models} (with models.lock.json)"
+        models_step = f"6. copy every model from {args.models} (with models.lock.json)"
     else:
-        models_step = "5. no models folder given; the app will report none"
+        models_step = "6. no models folder given; the app will report none"
     steps = [
         f"1. download {python_zip_url(args.arch)} and unzip into {out / 'python'}; write python311._pth",
         wheel_step,
         f"3. pip install --no-deps --no-index --target {out / 'Lib' / 'site-packages'} every wheel",
-        f"4. copy the twinscribe package from {REPO_ROOT / 'twinscribe'}",
+        f"4. copy the C++ runtime ({', '.join(RUNTIME_DLLS)}) from the {RUNTIME_SOURCE} wheel into {out / 'python'}",
+        f"5. copy the twinscribe package from {REPO_ROOT / 'twinscribe'}",
         models_step,
-        f"6. copy ffmpeg from {args.ffmpeg} into {out / 'bin'}" if args.ffmpeg else (
-            "6. ffmpeg comes from the imageio-ffmpeg package" if args.bundle_ffmpeg else "6. no ffmpeg given; decoding will need one on the search path"),
-        f"7. write twinscribe.cmd, twinscribe-app.cmd, NOTICE and RECORD.txt under {out}",
+        f"7. copy ffmpeg from {args.ffmpeg} into {out / 'bin'}" if args.ffmpeg else (
+            "7. ffmpeg comes from the imageio-ffmpeg package" if args.bundle_ffmpeg else "7. no ffmpeg given; decoding will need one on the search path"),
+        f"8. write twinscribe.cmd, twinscribe-app.cmd, NOTICE and RECORD.txt under {out}",
     ]
     if args.pack:
         level = args.level or DEFAULT_LEVEL
-        steps.append(f"8. pack the folder into {', '.join(PART_NAMES.values())} beside it, the second part carrying {detector_key(level, args.arch)}")
+        steps.append(f"9. pack the folder into {', '.join(PART_NAMES.values())} beside it, the second part carrying {detector_key(level, args.arch)}")
     if args.arch == "arm64":
         steps.append("note: CTranslate2 has no wheel for arm64; this build carries the ONNX detector only")
     if args.gpu and args.arch != "amd64":
@@ -329,6 +431,8 @@ def build(args: argparse.Namespace) -> int:
     )
     for wheel in wheel_files:
         record.append(f"wheels/{wheel.name}  {sha256_file(wheel)}")
+    print(f"copying the C++ runtime from the {RUNTIME_SOURCE} wheel into {python_dir}")
+    record.extend(copy_runtime(site, python_dir))
 
     package_target = out / "twinscribe"
     if package_target.exists():
