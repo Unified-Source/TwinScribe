@@ -167,6 +167,10 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-18, the site's tour.** The page at [twinscribe.app](https://twinscribe.app) opens
+  with ninety seconds on the idea and the window, from a dropped-in recording to a verified
+  mark, drawn from the page's own material over a score synthesised from code; the clip of the
+  real run sits in the window's section (`docs/specs/site.notes.md`).
 - **2026-09-15, word ends from the model's durations.** A published word ended at the next
   word's start, so audio the transducer skipped inside an utterance was absorbed into the word
   before it and the review list could not see it. The transducer's own per-token durations

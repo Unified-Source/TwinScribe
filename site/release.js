@@ -1,16 +1,18 @@
 /* Fills the download button from the newest release: the zip's address, the version, the size
    and the digest. Without a reply the page reads as written, with the Releases page as the
-   button's address. Under a reduced-motion preference the recording waits to be played. */
+   button's address. Under a reduced-motion preference the tour waits to be played. */
 (function () {
   "use strict";
 
   var ASSET = "twinscribe-win64.zip";
   var RELEASES = "https://api.github.com/repos/Unified-Source/TwinScribe/releases?per_page=1";
 
-  var video = document.getElementById("run");
-  if (video && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    video.removeAttribute("autoplay");
-    video.pause();
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    var playing = document.querySelectorAll("video[autoplay]");
+    for (var i = 0; i < playing.length; i += 1) {
+      playing[i].removeAttribute("autoplay");
+      playing[i].pause();
+    }
   }
 
   var button = document.getElementById("download");

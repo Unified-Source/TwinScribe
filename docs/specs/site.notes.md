@@ -20,6 +20,13 @@ Companion to `site.md`. Records what was built, what was checked, and what was l
   the asset's SHA-256 as the release record carries it. The wordmark resolved to the family
   `app_icon.py` names on a machine that has it.
 - `tests/test_site.py`: seven tests, all passing beside the suite.
+- The tour, added 2026-09-18: 94 seconds at 1920 by 1080, 10.9 MB with its score, stored as
+  `docs/media/tour.mp4` with its poster `docs/images/tour-poster.jpg` and copied at assembly,
+  which now makes twelve files. The hero holds one column when it carries the tour, so the
+  tour takes the measure under the claim; the real-run clip moves to the window's section,
+  no longer set to play on its own. The script's reduced-motion rule covers whichever video is
+  set to play on its own, which is now the tour. Checked again at 375 and 1200 pixels: no
+  horizontal overflow, the tour under the claim at both, the poster shown until it plays.
 
 ## Choices
 
@@ -38,6 +45,13 @@ Companion to `site.md`. Records what was built, what was checked, and what was l
   controls in view. The MP4 first published was an older run whose top bar carried the mark
   before its redrawing; it was encoded again from the frames of the retaken run, 26 seconds
   at the animated picture's timing, so the clip, its poster and the page show one mark.
+- The tour leads and the run follows. A reader who has not opened the repository meets the
+  idea before the window: the tour says what the second engine is for before the run shows it
+  working, and the run keeps its place beside the description of the window, where a reader
+  who wants the real thing looks. The tour is silent by default, since a page that starts
+  playing sound is a page that gets closed; the score is one press away on the player's own
+  control. Everything in it is the page's own material or synthesised, so the tour brings
+  nothing to clear and nothing to credit.
 - The download button asks for the newest release rather than naming a version in the
   markup, so the page does not go stale between releases; the markup's own address is the
   Releases page, which is right whatever the script does. `releases/latest` was not used: it
@@ -57,3 +71,5 @@ Companion to `site.md`. Records what was built, what was checked, and what was l
 - The window's dark-palette still is not on the page; the two stills shown are the light
   ones, which read as windows on either ground.
 - No analytics and no cookie of any kind, by design; nothing on the page reports the reader.
+- The tour's source is not in the repository; a change to the page's copy or to the window's
+  stills is not reflected in the tour until it is built again.

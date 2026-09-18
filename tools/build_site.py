@@ -28,6 +28,8 @@ ASSETS: dict[str, str] = {
     "images/window-playing.png": "docs/images/window-playing.png",
     "images/verify.png": "docs/images/verify.png",
     "media/live-transcribe.mp4": "docs/media/live-transcribe.mp4",
+    "media/tour.mp4": "docs/media/tour.mp4",
+    "images/tour-poster.jpg": "docs/images/tour-poster.jpg",
 }
 
 TEXT_SUFFIXES = {".html", ".css", ".js", ".txt", ".svg"}

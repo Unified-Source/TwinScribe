@@ -245,6 +245,9 @@ p + p { margin-top: 1rem; }
 }
 
 .hero-run { margin: 0; min-width: 0; }
+/* The tour spans the measure: its captions are set for the full width, not a half column. */
+.hero.with-tour { grid-template-columns: minmax(0, 1fr); }
+.hero-run.tour { max-width: var(--measure); }
 .frame {
   border: 1px solid var(--line);
   border-radius: 10px;

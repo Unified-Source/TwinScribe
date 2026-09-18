@@ -39,7 +39,7 @@
 
 <main id="top">
 
-<section class="hero">
+<section class="hero with-tour">
   <div class="hero-text">
     <p class="tagline">Two engines. A clearer record.</p>
     <h1>Offline transcription with speaker labels, for recordings that will be relied on.</h1>
@@ -55,14 +55,15 @@
     <p class="digest" id="download-digest" hidden></p>
     <p class="status">Early, and a pre-release. Windows 10 or 11 on x86-64; Linux and macOS from source.</p>
   </div>
-  <figure class="hero-run">
+  <figure class="hero-run tour">
     <div class="frame">
-      <video id="run" src="media/live-transcribe.mp4" poster="images/window-transcribing.png"
-             autoplay muted loop playsinline controls preload="metadata" width="1280" height="820"
-             aria-label="The window during a live transcription: the stage strip advancing and the published engine's lines arriving"></video>
+      <video id="tour" src="media/tour.mp4" poster="images/tour-poster.jpg"
+             autoplay muted loop playsinline controls preload="metadata" width="1920" height="1080"
+             aria-label="A ninety-second tour: the problem, the two engines, then the window opening a recording, transcribing it, showing the record with its marks, and the verification screen working through one mark"></video>
     </div>
-    <figcaption>Twenty-six seconds of a real run: the stage strip advancing and the published
-    engine's lines arriving as they are decoded.</figcaption>
+    <figcaption>Ninety seconds: the idea, then the window from a dropped-in recording to a verified
+    mark. Silent by default; the sound button adds the score. The recording is the first chapter
+    of a public-domain audiobook.</figcaption>
   </figure>
 </section>
 
@@ -144,6 +145,16 @@
   <p>One window, in the manner of a media player. Drop recordings or folders in, choose a quality
   level, press Transcribe; each recording plays at once, and the ones that have been transcribed
   show their transcript following the audio.</p>
+
+  <figure class="still">
+    <div class="frame">
+      <video id="run" src="media/live-transcribe.mp4" poster="images/window-transcribing.png"
+             muted loop playsinline controls preload="metadata" width="1280" height="820"
+             aria-label="The window during a live transcription: the stage strip advancing and the published engine's lines arriving"></video>
+    </div>
+    <figcaption><strong>Transcribing.</strong> Twenty-six seconds of a real run: the stage strip
+    advancing and the published engine's lines arriving as they are decoded.</figcaption>
+  </figure>
 
   <figure class="still">
     <img src="images/window-playing.png" alt="The window with a transcribed recording playing: the library on the left, the transcript following the playhead, the waveform timeline with the review marks" width="1280" height="820" loading="lazy">

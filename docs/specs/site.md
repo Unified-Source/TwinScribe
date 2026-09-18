@@ -16,9 +16,14 @@ their licences. Every sentence is drawn from the README or the release notes and
 register: impersonal, British spelling, ASCII hyphens. The page names no tooling, and no one
 outside the repository beyond the copyright holder named in `NOTICE`.
 
-The pictures are the documentation's own: the live recording as the MP4 beside the claim,
-the window playing a transcribed recording, and the verification screen. The transcript
-excerpt is the first chapter of the public-domain audiobook the README's stills show, with
+Under the claim, a tour of ninety seconds: the problem, the two engines, then the window
+from a dropped-in recording to a verified mark, with the second engine's span played where
+the review listens to it. It is drawn from the site's own material, the audiobook chapter,
+the window's stills and the mark, over a score synthesised from code, so that nothing in it
+needs clearing. It plays silent and looped from the moment the page opens, the sound button
+adds the score, and under a reduced-motion preference it waits to be played. The pictures are
+the documentation's own: the live recording as the MP4 in the window's section, the window
+playing a transcribed recording, and the verification screen. The transcript excerpt is the first chapter of the public-domain audiobook the README's stills show, with
 the lines as the window laid them out, including a silence marked and a mark for missed
 speech; the two words the second engine heard there are the two the book has and the
 published line lacks, so the excerpt is a checkable specimen rather than an illustration.
@@ -46,9 +51,9 @@ the dot between; a review mark is shown as the window shows it, a strip between 
 
 ## 4. Assembly and publication
 
-`tools/build_site.py` copies `site/` into an output folder with the pictures, the recording
-and the icon the page shows, taken from `docs/images/`, `docs/media/` and `assets/`, so that
-no picture is stored twice. It then checks that every local reference in the page resolves in
+`tools/build_site.py` copies `site/` into an output folder with the pictures, the tour and
+its poster, the recording and the icon the page shows, taken from `docs/images/`,
+`docs/media/` and `assets/`, so that no picture is stored twice. It then checks that every local reference in the page resolves in
 the assembled folder and that the site's text files hold ASCII only, and fails on either. The
 workflow runs it on every push to `main` that touches those files and publishes the folder
 through GitHub Pages; the site's address is a setting of the repository and a record at the
