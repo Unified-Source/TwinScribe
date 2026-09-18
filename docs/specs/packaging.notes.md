@@ -23,8 +23,11 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
   (the Standard level offered, the device seen), the window opened on a recording through
   `twinscribe.cmd app --shot`, and the settings written under the folder's own `home`.
 - The parts, 2026-09-18, from the same wheel set and the Standard level's models: the first
-  1.17 GB (6,468 files), the second 1.62 GB (the checker's five files, stored), the third
-  1.36 GB (the CUDA packages, 55 files); each well under the two-gibibyte limit. Checked on
+  1.17 GB (6,474 files, the runtime set among them), the second 1.62 GB (the checker's five
+  files, stored), the third 1.36 GB (the CUDA packages, 55 files); each well under the
+  two-gibibyte limit. The second part comes out byte for byte the same from one build to the
+  next, since its files are stored with the times the store gave them; the first and the
+  third carry the times of the build. Published with 0.0.3 beside the executables. Checked on
   the desktop with an NVIDIA device, through the launchers only: the assembled folder gives
   its version and its check; the first part unzipped as a person would (54 s through the
   platform's own extraction) gives a folder whose check names the checker absent and no
@@ -50,8 +53,11 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
   the interpreter's 14.38.33126.1, which it replaces) into the interpreter's folder, which the
   loader searches for every library's dependencies, and records each file with its version,
   read from the file's own version resource so that an older copy is never installed over a
-  newer one. Checked by listing the runtime modules a process of the folder has loaded after
-  importing the engines: every one from the folder's `python` folder, none from the system.
+  newer one. Checked by listing the runtime modules a process of the folder had loaded after
+  importing the engines and the interface library: the four of the set in use, from the
+  folder's own `python` folder and not from the system; beside them the universal C runtime,
+  which is part of Windows itself and is meant to come from the system, and the copies that
+  numpy and CTranslate2 carry for themselves.
 - `check --verify` now digests the models the store holds, whole or in part, rather than
   every catalogue model: a store with one level's models reported the other five models'
   files as missing and returned a failure although all of its own files verified, which a
