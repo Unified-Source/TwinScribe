@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twinscribe"
-version = "0.0.3"
+version = "0.0.4"
 description = "Offline transcription with speaker labels for long recordings that will be relied on."
 readme = "README.md"
 requires-python = ">=3.11"
