@@ -39,8 +39,13 @@ Companion to `recording_parts.md`. Records what was built, what was checked, and
 - The session that called for this, read locally: eleven `.trm` files of a court recording
   system, 51.2 minutes of audio, a pause of 145 s after the first file and rollovers of 0.0
   to 0.3 s between the rest. With the extension read (the previous change) and no joining,
-  it gave eleven transcripts; with joining, one. What that run gave is recorded below once
-  it has finished.
+  it gave eleven transcripts; with joining, one recording of 3,220 s, the parts at 0, 255.3,
+  555.5, 855.6 s and so on from the headers, each part's decoded duration within 0.3 s of
+  the header's, the pause a silence scene of 145 s in the transcript, 89 review marks, no
+  failures, in 1,222 s on the development laptop (the ONNX detector on the processor). The
+  speaker stage gave 21 labels for a room of a few voices, the known limit of the clustering
+  on a long recording and the reason the speaker count can be given; nothing in the join
+  changes that.
 
 ## Choices
 
