@@ -60,6 +60,26 @@ extended; tests `tests/test_models.py`, `test_profiles.py`, `test_labelling.py`,
   recordings, so a folder of recordings is not littered with one record per batch.
 - `discover_media()` decides by extension; a file with a wrong extension is reported by ffmpeg
   as a failure of that file and the batch goes on.
+- Session files of a court and interview recording system, 2026-09-25: eleven `.trm` files
+  of five minutes each with two `.trs` files beside them gave "no recordings found", because
+  the extension was not on the list. Read locally, the `.trm` is an AVI container carrying
+  the picture in H.264 and the sound in the FTR voice codec, two channels at 48 kHz, which
+  the bundled decoder reads (its probe names the stream, and a decode to the engines' format
+  gave real sound); the `.trs` is a UTF-16 XML index of the session's media files with their
+  start and end times. The extension is now on the list, and a folder that yields nothing
+  names the types it holds. The recorder writes a session as consecutive files with the
+  session's start time in each file's header, one file every five minutes; those parts are
+  still transcribed one by one, and joining them into one recording is the next piece of
+  work. The platform's media player has no decoder for that sound, which is why the playable
+  copy below exists; it was found by reading the format, not by running the window on the
+  files, whose content is not the repository's to hold.
+- The playable copy: a recording the platform's player cannot read is decoded once, in a
+  thread, to a 16 kHz mono WAV under `home/play/`, named by its stem and a digest of its
+  path, and played from there; the same copy serves the verification screen. The copy is the
+  engines' own format, which is what the transcript was made from, and small (about 2 MB a
+  minute); the folder is never emptied by the program and can be cleared by hand. Exercised
+  in the tests with a stand-in for the thread and, through the decoder, on a synthetic WAV
+  under another extension; not yet exercised in the window on a real file of that kind.
 - The application home is `TWINSCRIBE_HOME`, else the per-user application data folder, else
   a hidden folder under the home directory. Settings are one JSON file there; nothing is
   written to the registry.

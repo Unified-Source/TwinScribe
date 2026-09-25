@@ -123,3 +123,12 @@ on reopening.
 - The offscreen tests seed a pass from the document, name a stale session, choose a speaker
   and read it back from the session file and the document, and block the Word document with a
   folder of the same name to exercise the partial write.
+
+## Recordings the player cannot read
+
+- Added 2026-09-25 with the main window's playable copy: on a player error the screen decodes
+  the recording once, in a thread, to the copy under the application home and plays from it;
+  a copy made earlier is used on opening; a picture the player shows without a sound it can
+  decode is treated the same; a copy that cannot be made leaves playback off with the reason.
+  Exercised in the tests with a stand-in for the thread; the case that called for it, a
+  court recording system's session file, was read for its format only.

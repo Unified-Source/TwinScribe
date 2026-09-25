@@ -144,7 +144,12 @@ the review list; write the outputs. Progress
 is reported as an overall fraction with the stage named, using the engines' progress callbacks;
 a cancel check stops within one engine progress step. A batch runs recordings one after
 another and never stops for a failure. `discover_media(paths)` lists the audio and video files
-under files and folders, recursively.
+under files and folders, recursively, by extension; the list takes in the `.trm` session files
+of court and interview recording systems, an AVI container whose sound is in a codec the
+decoder reads. `unread_types(paths)` names the extensions of what was left out, most frequent
+first, and `describe_unread` phrases them, so that a folder which yields no recording is
+explained ("the files there are of types .trs and .log, which are not read") rather than
+reported empty, by the command line and by the window alike.
 
 ## 5a. The machine and the plan
 
@@ -197,7 +202,12 @@ transcript recording that its word times are approximate.
 - Dropping files or folders, Open files and Open folder add recordings; a recording whose
   transcript document sits beside it is shown as done at once.
 - Selecting a recording loads it into one QMediaPlayer; playback works whether or not it has
-  been transcribed. With a transcript, the line under the playhead is highlighted and kept in
+  been transcribed. A recording the platform's player cannot read (an error on loading, or a
+  picture shown without a sound it can decode) is decoded once through the pipeline's own
+  decoder to a playable copy under the application home (`twinscribe/app/playable.py`, in a
+  thread, the status line saying so) and played from that; a copy made earlier is played on
+  selection; a copy that cannot be made leaves playback off with the reason. With a
+  transcript, the line under the playhead is highlighted and kept in
   view (a manual scroll pauses following for a few seconds; the follow button toggles it).
 - Gap markers between the lines name the spans the review list flagged, with the count of
   words the second engine heard there and never their text; clicking one plays the span and

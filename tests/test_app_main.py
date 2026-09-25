@@ -17,7 +17,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl  # noqa: E402
+from PySide6.QtCore import QMimeData, QObject, QPointF, Qt, QUrl, Signal  # noqa: E402
+from PySide6.QtMultimedia import QMediaPlayer  # noqa: E402
 from PySide6.QtGui import QDropEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -852,3 +853,89 @@ def test_chips_show_seconds_and_the_elided_label_keeps_its_text(app: QApplicatio
     label.setText("short")
     assert label.text() == "short" and label.toolTip() == ""
     dispose(app, window)
+
+
+def test_adding_a_folder_of_other_types_names_them(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "room_0903.trs").write_bytes(b"")
+    (other / "room_0907.trs").write_bytes(b"")
+    assert window.add_paths([other]) == 0
+    assert window.statusBar().currentMessage() == "Nothing new to add: no recordings found; the files are of type .trs, which is not read."
+    assert window.add_paths([media["fresh"]]) == 1
+    assert window.add_paths([media["fresh"]]) == 0
+    assert window.statusBar().currentMessage() == "Nothing new to add: the recordings are in the library already."
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert window.add_paths([empty]) == 0
+    assert window.statusBar().currentMessage() == "Nothing new to add: no recordings found."
+    window.close()
+
+
+class FakeCopy(QObject):
+    """Stands in for the decoding thread: `start` reports the copy at once."""
+
+    ready = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+    target: Path | None = None
+    reason: str | None = None
+    started: list[Path] = []
+
+    def __init__(self, source: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.source = Path(source)
+
+    def start(self) -> None:
+        FakeCopy.started.append(self.source)
+        if FakeCopy.reason is not None:
+            self.failed.emit(FakeCopy.reason)
+        else:
+            self.ready.emit(FakeCopy.target)
+        self.finished.emit()
+
+
+def test_a_recording_the_player_cannot_read_is_played_from_a_decoded_copy(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    window = make_window(app, tmp_path)
+    if window.player is None:
+        pytest.skip("no media player on this platform")
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert window._current_path == media["fresh"]
+    copy = audio.synthetic_wav(tmp_path / "copy.wav", 1.0)
+    FakeCopy.target, FakeCopy.reason, FakeCopy.started = copy, None, []
+    monkeypatch.setattr(app_main, "PlayableCopy", FakeCopy)
+    window._on_player_error(QMediaPlayer.Error.FormatError, "no decoder for the sound")
+    assert FakeCopy.started == [media["fresh"]]
+    assert Path(window.player.source().toLocalFile()) == copy
+    assert window.player_bar.play_button.isEnabled()
+    assert window.statusBar().currentMessage() == "Playing a decoded copy of the recording."
+    # A second failure on the same selection is not copied again; it is reported.
+    window._on_player_error(QMediaPlayer.Error.FormatError, "still no decoder")
+    assert FakeCopy.started == [media["fresh"]]
+    assert window.statusBar().currentMessage().startswith("Playback is not possible for this file: still no decoder")
+    # A copy that cannot be made leaves playback off with the reason.
+    window.add_paths([media["done"]])
+    window.library_view.setCurrentIndex(window.library_model.index(1, 0))
+    app.processEvents()
+    assert window._current_path == media["done"]
+    FakeCopy.reason = "RuntimeError: ffmpeg exited"
+    window._on_player_error(QMediaPlayer.Error.FormatError, "no decoder")
+    assert window.statusBar().currentMessage() == "Playback is not possible for this file: RuntimeError: ffmpeg exited"
+    assert not window.player_bar.play_button.isEnabled()
+    window.close()
+
+
+def test_a_copy_made_earlier_is_played_on_selection(app: QApplication, tmp_path: Path, home: Path, media: dict[str, Path]) -> None:
+    window = make_window(app, tmp_path)
+    if window.player is None:
+        pytest.skip("no media player on this platform")
+    from twinscribe.app.playable import playable_copy_path
+
+    copy = playable_copy_path(media["fresh"])
+    audio.synthetic_wav(copy, 1.0)
+    window.add_paths([media["fresh"]])
+    app.processEvents()
+    assert Path(window.player.source().toLocalFile()) == copy
+    window.close()

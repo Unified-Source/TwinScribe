@@ -14,6 +14,7 @@ import json
 import os
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -50,6 +51,9 @@ VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".mp4", ".m4v", ".mov", ".avi", ".mkv", ".wmv", ".webm", ".mpg", ".mpeg",
         ".3gp", ".ts", ".mts", ".m2ts", ".flv", ".asf", ".vob",
+        # Court and interview recording systems write their sessions as .trm: an AVI container
+        # with the picture in H.264 and the sound in the FTR voice codec, which the decoder reads.
+        ".trm",
     }
 )
 MEDIA_EXTENSIONS: frozenset[str] = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
@@ -293,6 +297,34 @@ def discover_media(paths: Iterable[str | os.PathLike[str]], recursive: bool = Tr
         elif path.is_file() and is_media(path):
             found.setdefault(os.path.normcase(str(path.resolve())), path)
     return sorted(found.values(), key=lambda p: (os.path.normcase(str(p.parent)), os.path.normcase(p.name)))
+
+
+def unread_types(paths: Iterable[str | os.PathLike[str]], recursive: bool = True, limit: int = 5) -> list[str]:
+    """The extensions, lower-cased and the most frequent first, of the files under the given
+    paths that are not read as recordings, at most `limit` of them: for the message that says
+    why a folder gave nothing. A file without an extension counts under an empty string."""
+    counts: Counter[str] = Counter()
+    for given in paths:
+        path = Path(given)
+        if path.is_dir():
+            candidates = path.rglob("*") if recursive else path.glob("*")
+            for candidate in candidates:
+                if candidate.is_file() and not is_media(candidate):
+                    counts[candidate.suffix.lower()] += 1
+        elif path.is_file() and not is_media(path):
+            counts[path.suffix.lower()] += 1
+    return [suffix for suffix, _ in counts.most_common(limit)]
+
+
+def describe_unread(types: Sequence[str]) -> str:
+    """"of type .trs, which is not read", or "of types .trs and .log, which are not read", for
+    the message a folder without recordings gets; empty when there is nothing to name."""
+    names = [name if name else "no extension" for name in types]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return f"of type {names[0]}, which is not read"
+    return f"of types {', '.join(names[:-1])} and {names[-1]}, which are not read"
 
 
 @dataclass(frozen=True)

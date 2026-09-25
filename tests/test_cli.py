@@ -238,3 +238,15 @@ def test_threads_must_be_positive_and_an_unknown_model_key_is_named(tmp_path: Pa
     assert cli.build_parser().parse_args(["run", "x", "--again"]).again is True
     assert cli.main(["fetch-models", "--only", "no-such-model", "--root", str(tmp_path / "store")]) == 2
     assert "no catalogue entry" in capsys.readouterr().err
+
+
+def test_run_names_the_types_a_folder_without_recordings_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv(MODELS_ENV, str(tmp_path / "models"))
+    folder = tmp_path / "session"
+    folder.mkdir()
+    (folder / "room_0903.trs").write_bytes(b"")
+    (folder / "room_0907.trs").write_bytes(b"")
+    (folder / "notes.log").write_bytes(b"")
+    assert cli.main(["run", str(folder)]) == 2
+    err = capsys.readouterr().err
+    assert "no recordings found" in err and "the files there are of types .trs and .log, which are not read" in err

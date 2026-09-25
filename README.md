@@ -167,6 +167,12 @@ python -m twinscribe app <folder with the recordings>
 
 ## Recent changes
 
+- **2026-09-25, session files of court and interview recording systems.** Their `.trm` files,
+  an AVI container whose sound is in a codec the decoder reads, are now taken as recordings;
+  a folder that yields no recording says which file types it holds instead of reporting
+  nothing; and a recording the window's player cannot read is decoded once to a playable
+  copy and played from that, in the window and in the verification screen. A session written
+  as consecutive five-minute files is still transcribed file by file.
 - **2026-09-18, the portable folder on the Releases page.** The folder that runs with nothing
   installed and nothing fetched, the models of the Standard level inside, is published as
   parts, since a release carries files of at most two gibibytes and the folder is larger: the

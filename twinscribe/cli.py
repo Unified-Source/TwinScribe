@@ -29,7 +29,7 @@ from twinscribe.models import STATUS_VERIFIED, find_models, verify_store
 from twinscribe.outputs import render_all
 from twinscribe.outputs.export import DEFAULT_FORMATS, FORMATS, export_outputs
 from twinscribe.outputs.transcript_doc import load_document
-from twinscribe.pipeline import Progress, discover_media, output_paths, run_batch
+from twinscribe.pipeline import Progress, describe_unread, discover_media, output_paths, run_batch, unread_types
 from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, available_profiles, select
 
 
@@ -225,6 +225,9 @@ def command_run(args: argparse.Namespace) -> int:
     sources = discover_media(args.paths, recursive=not args.no_recurse)
     if not sources:
         print("no recordings found under the given paths", file=sys.stderr)
+        kinds = describe_unread(unread_types(args.paths, recursive=not args.no_recurse))
+        if kinds:
+            print(f"the files there are {kinds}", file=sys.stderr)
         return 2
     if args.speakers is not None and args.speakers < 1:
         print("--speakers must be at least 1 when given", file=sys.stderr)

@@ -17,10 +17,12 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtCore import QObject, QPoint, Qt, Signal  # noqa: E402
+from PySide6.QtMultimedia import QMediaPlayer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from twinscribe import audio  # noqa: E402
 from twinscribe.app import verify  # noqa: E402
 from twinscribe.app.theme import apply_theme, palette_for, theme_for  # noqa: E402
 from twinscribe.app.timeline import Timeline, format_mss  # noqa: E402
@@ -824,3 +826,46 @@ def test_an_output_held_by_another_program_does_not_hide_the_write(app: QApplica
     assert "{yes}" in paths.text.read_text(encoding="utf-8")
     assert window.done_count() == 1
     window.close()
+
+
+class FakeCopy(QObject):
+    """Stands in for the decoding thread: `start` reports the copy at once."""
+
+    ready = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+    target: Path | None = None
+    reason: str | None = None
+
+    def __init__(self, source: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.source = Path(source)
+
+    def start(self) -> None:
+        if FakeCopy.reason is not None:
+            self.failed.emit(FakeCopy.reason)
+        else:
+            self.ready.emit(FakeCopy.target)
+        self.finished.emit()
+
+
+def test_the_screen_plays_a_decoded_copy_when_the_player_cannot_read_the_recording(app: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    audio.synthetic_wav(tmp_path / "call.wav", 30.0)
+    review_path = write_review(tmp_path)
+    window = make_window(app, review_path)
+    if window.player is None:
+        pytest.skip("no media player on this platform")
+    copy = audio.synthetic_wav(tmp_path / "copy.wav", 30.0)
+    FakeCopy.target, FakeCopy.reason = copy, None
+    monkeypatch.setattr(verify, "PlayableCopy", FakeCopy)
+    window._on_player_error(QMediaPlayer.Error.FormatError, "no decoder for the sound")
+    assert window.audio_available and Path(window.player.source().toLocalFile()) == copy
+    assert window.status_label.text() == "Playing a decoded copy of the recording."
+    window._on_player_error(QMediaPlayer.Error.FormatError, "still no decoder")
+    assert not window.audio_available and "still no decoder" in window.status_label.text()
+    window.close()
+    FakeCopy.reason = "RuntimeError: ffmpeg exited"
+    again = make_window(app, review_path)
+    again._on_player_error(QMediaPlayer.Error.FormatError, "no decoder")
+    assert not again.audio_available and "ffmpeg exited" in again.status_label.text()
+    again.close()

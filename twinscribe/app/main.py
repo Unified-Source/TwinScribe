@@ -104,7 +104,8 @@ from twinscribe.outputs.transcript_doc import (
     speaker_names,
     write_document,
 )
-from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, Progress, output_paths
+from twinscribe.app.playable import PlayableCopy, copy_is_current, play_dir, playable_copy_path
+from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, Progress, describe_unread, discover_media, output_paths, unread_types
 from twinscribe.profiles import ModelsMissing, Profile, available_profiles, profile_for, select as select_level
 from twinscribe.runrecord import write_json_atomic
 
@@ -721,8 +722,11 @@ class MainWindow(QMainWindow):
         if added:
             noun = "recording" if len(added) == 1 else "recordings"
             self.set_status(f"Added {len(added)} {noun}.")
+        elif paths and discover_media(paths):
+            self.set_status("Nothing new to add: the recordings are in the library already.")
         elif paths:
-            self.set_status("Nothing new to add: no recordings found, or all are in the library already.")
+            kinds = describe_unread(unread_types(paths))
+            self.set_status(f"Nothing new to add: no recordings found; the files are {kinds}." if kinds else "Nothing new to add: no recordings found.")
         return len(added)
 
     def clear_library(self) -> None:
@@ -1582,8 +1586,11 @@ class MainWindow(QMainWindow):
             return
         self._current_path = path
         self._player_error = None
+        self._copy_for = None
         self.player.stop()
-        self.player.setSource(QUrl.fromLocalFile(str(path)))
+        # A copy made earlier for a recording the player cannot read is played instead of it.
+        copy = playable_copy_path(path)
+        self.player.setSource(QUrl.fromLocalFile(str(copy if copy_is_current(path, copy) else path)))
         self.player_bar.set_available(True)
         self.player_bar.set_playing(False)
 
@@ -1624,7 +1631,13 @@ class MainWindow(QMainWindow):
                 self.player.setPosition(int(round(seconds * 1000.0)))
 
     def _on_media_status_changed(self, status) -> None:
-        if self._pending_seek_s is None or self.player is None:
+        if self.player is None:
+            return
+        if status == QMediaPlayer.MediaStatus.LoadedMedia and self.player.hasVideo() and not self.player.hasAudio():
+            # A picture the player shows without a sound it can decode: play a decoded copy.
+            if self._start_playable_copy("no sound the player can decode"):
+                return
+        if self._pending_seek_s is None:
             return
         if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
             seconds = self._pending_seek_s
@@ -1718,8 +1731,44 @@ class MainWindow(QMainWindow):
     def _on_player_error(self, error, message: str) -> None:
         if error == QMediaPlayer.Error.NoError:
             return
+        if self._start_playable_copy(message or str(error)):
+            return
         self._player_error = message or str(error)
         self.set_status(f"Playback is not possible for this file: {self._player_error}")
+        self.player_bar.set_available(False)
+
+    # ----- a playable copy ------------------------------------------------------------------
+
+    def _start_playable_copy(self, reason: str) -> bool:
+        """Decode the current recording to a copy the player can read, once per selection;
+        returns whether a copy was started. A copy that fails in the player is not copied again."""
+        path = self._current_path
+        if self.player is None or path is None or getattr(self, "_copy_for", None) == path or path.parent == play_dir():
+            return False
+        self._copy_for = path
+        copy = PlayableCopy(path, self)
+        copy.ready.connect(self._on_playable_copy_ready)
+        copy.failed.connect(self._on_playable_copy_failed)
+        copies: list[PlayableCopy] = self.__dict__.setdefault("_copies", [])
+        copies.append(copy)
+        copy.finished.connect(lambda: copies.remove(copy) if copy in copies else None)
+        self.set_status(f"The player cannot read this recording ({reason}); decoding a copy to play.")
+        copy.start()
+        return True
+
+    def _on_playable_copy_ready(self, copy: object) -> None:
+        if self.player is None or self._current_path is None or getattr(self, "_copy_for", None) != self._current_path:
+            return
+        self._player_error = None
+        self.player.setSource(QUrl.fromLocalFile(str(copy)))
+        self.player_bar.set_available(True)
+        self.set_status("Playing a decoded copy of the recording.")
+
+    def _on_playable_copy_failed(self, reason: str) -> None:
+        if getattr(self, "_copy_for", None) != self._current_path:
+            return
+        self._player_error = reason
+        self.set_status(f"Playback is not possible for this file: {reason}")
         self.player_bar.set_available(False)
 
     def _on_follow_toggled(self, follow: bool) -> None:

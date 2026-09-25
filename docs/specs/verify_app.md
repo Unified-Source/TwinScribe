@@ -51,7 +51,9 @@ published engine's silent failures become a short, ordered list of places to lis
   when a resolution advances to the next mark, so a pass is listen, decide, listen.
 - Playback through `QMediaPlayer` and `QAudioOutput` from the review set's `audio` path;
   when the file is missing, playback controls do nothing and the status line says so, and the
-  screen otherwise works.
+  screen otherwise works. A recording the player cannot read is decoded once to a playable
+  copy, as the main window does (`twinscribe/app/playable.py`), and played from that; a copy
+  made earlier is used on opening.
 - Resolutions are kept in memory and written on close to `<review_set stem>.session.json`
   beside the review set: `{"schema": "twinscribe.review-session.v1", "marks": [{"start", "end", "status", "note", "speaker"}]}`
   (`speaker` a label, an empty string for none, or null to take the speaker the lines around

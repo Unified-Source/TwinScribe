@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from twinscribe.app.playable import PlayableCopy, copy_is_current, play_dir, playable_copy_path
 from twinscribe.amend import listener_line_for, resolutions_from_document
 from twinscribe.app.app_icon import app_icon
 from twinscribe.app.theme import Theme, apply_theme, theme_for
@@ -722,6 +723,8 @@ class VerifyWindow(QMainWindow):
         self.player: QMediaPlayer | None = None
         self.audio_output: QAudioOutput | None = None
         self._player_error: str | None = None
+        self._copy_started = False
+        self._copy: PlayableCopy | None = None
         try:
             self.player = QMediaPlayer(self)
             self.audio_output = QAudioOutput(self)
@@ -733,8 +736,12 @@ class VerifyWindow(QMainWindow):
             self.player.positionChanged.connect(self._on_position_changed)
             self.player.errorOccurred.connect(self._on_player_error)
             self.player.playbackStateChanged.connect(self._on_playback_state_changed)
+            self.player.mediaStatusChanged.connect(self._on_media_status_changed)
             if self.audio_available:
-                self.player.setSource(QUrl.fromLocalFile(str(self.audio_path)))
+                # A copy made earlier for a recording the player cannot read is played instead.
+                copy = playable_copy_path(self.audio_path)
+                source = copy if copy_is_current(self.audio_path, copy) else self.audio_path
+                self.player.setSource(QUrl.fromLocalFile(str(source)))
         except Exception as exc:  # noqa: BLE001 (any multimedia failure disables playback)
             self.player = None
             self.audio_output = None
@@ -964,9 +971,46 @@ class VerifyWindow(QMainWindow):
     def _on_player_error(self, error: QMediaPlayer.Error, message: str) -> None:
         if error == QMediaPlayer.Error.NoError:
             return
+        if self._start_playable_copy(message or str(error)):
+            return
         self._player_error = message or str(error)
         self.audio_available = False
         self.set_status(f"Playback is disabled: {self._player_error}.")
+
+    def _on_media_status_changed(self, status) -> None:
+        if self.player is None or status != QMediaPlayer.MediaStatus.LoadedMedia:
+            return
+        if self.player.hasVideo() and not self.player.hasAudio():
+            # A picture the player shows without a sound it can decode: play a decoded copy.
+            self._start_playable_copy("no sound the player can decode")
+
+    # ----- a playable copy ------------------------------------------------------------------
+
+    def _start_playable_copy(self, reason: str) -> bool:
+        """Decode the recording to a copy the player can read, once; returns whether a copy
+        was started. A copy that fails in the player is not copied again."""
+        if self.player is None or self._copy_started or self.audio_path.parent == play_dir():
+            return False
+        self._copy_started = True
+        self._copy = PlayableCopy(self.audio_path, self)
+        self._copy.ready.connect(self._on_playable_copy_ready)
+        self._copy.failed.connect(self._on_playable_copy_failed)
+        self.set_status(f"The player cannot read this recording ({reason}); decoding a copy to play.")
+        self._copy.start()
+        return True
+
+    def _on_playable_copy_ready(self, copy: object) -> None:
+        if self.player is None:
+            return
+        self._player_error = None
+        self.audio_available = True
+        self.player.setSource(QUrl.fromLocalFile(str(copy)))
+        self.set_status("Playing a decoded copy of the recording.")
+
+    def _on_playable_copy_failed(self, reason: str) -> None:
+        self._player_error = reason
+        self.audio_available = False
+        self.set_status(f"Playback is disabled: {reason}.")
 
     # ----- resolving ------------------------------------------------------------------
 

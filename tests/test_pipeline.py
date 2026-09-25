@@ -19,9 +19,11 @@ from twinscribe.pipeline import (
     Cancelled,
     Job,
     Progress,
+    describe_unread,
     discover_media,
     is_media,
     is_video,
+    unread_types,
     output_paths,
     process_file,
     run_batch,
@@ -117,6 +119,24 @@ def test_same_stem_recordings_keep_separate_outputs(models, tmp_path: Path) -> N
 def test_media_extension_rules() -> None:
     assert is_media("x.MP3") and is_media("y.mkv") and not is_media("z.txt") and not is_media("call.transcript.json")
     assert is_video("a.mp4") and is_video("b.AVI") and not is_video("c.wav")
+    # A court recording system's session file: an AVI container under its own extension.
+    assert is_media("room_20260101-0903_1a2b.trm") and is_video("room.TRM")
+    assert not is_media("room_20260101-0903_1a2b.trs")
+
+
+def test_unread_types_name_what_a_folder_without_recordings_holds(tmp_path: Path) -> None:
+    for name in ("a.trs", "b.trs", "c.log", "d.wav", "README"):
+        (tmp_path / name).write_bytes(b"")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "e.xyz").write_bytes(b"")
+    assert unread_types([tmp_path]) == [".trs", ".log", "", ".xyz"]
+    assert unread_types([tmp_path], recursive=False) == [".trs", ".log", ""]
+    assert unread_types([tmp_path], limit=1) == [".trs"]
+    assert unread_types([tmp_path / "d.wav"]) == [] and unread_types([tmp_path / "c.log"]) == [".log"]
+    assert describe_unread([]) == ""
+    assert describe_unread([".trs"]) == "of type .trs, which is not read"
+    assert describe_unread([".trs", ""]) == "of types .trs and no extension, which are not read"
+    assert describe_unread([".trs", ".log", ".xyz"]) == "of types .trs, .log and .xyz, which are not read"
 
 
 def test_discover_media_walks_folders(tmp_path: Path) -> None:
