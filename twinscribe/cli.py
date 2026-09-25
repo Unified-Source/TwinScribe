@@ -29,7 +29,7 @@ from twinscribe.models import STATUS_VERIFIED, find_models, verify_store
 from twinscribe.outputs import render_all
 from twinscribe.outputs.export import DEFAULT_FORMATS, FORMATS, export_outputs
 from twinscribe.outputs.transcript_doc import load_document
-from twinscribe.pipeline import Progress, describe_unread, discover_media, output_paths, run_batch, unread_types
+from twinscribe.pipeline import Progress, describe_unread, discover_media, discover_recordings, output_paths, run_batch, unread_types
 from twinscribe.profiles import DEFAULT_PROFILE, PROFILES, ModelsMissing, available_profiles, select
 
 
@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--keep-audio", action="store_true", help="keep the decoded 16 kHz work file")
     run.add_argument("--no-recurse", action="store_true", help="do not descend into sub-folders")
+    run.add_argument("--no-join", action="store_true", help="transcribe every file on its own, even the parts of one recording")
 
     check = commands.add_parser("check", help="report the machine, ffmpeg, engine libraries, models, levels and the plan")
     check.add_argument("--models", type=Path, default=None, help="models root folder")
@@ -222,7 +223,8 @@ def command_check(args: argparse.Namespace) -> int:
 
 def command_run(args: argparse.Namespace) -> int:
     """Transcribe every recording found under the given paths."""
-    sources = discover_media(args.paths, recursive=not args.no_recurse)
+    recordings = discover_recordings(args.paths, recursive=not args.no_recurse, join=not args.no_join)
+    sources = [recording.source for recording in recordings]
     if not sources:
         print("no recordings found under the given paths", file=sys.stderr)
         kinds = describe_unread(unread_types(args.paths, recursive=not args.no_recurse))
@@ -239,10 +241,14 @@ def command_run(args: argparse.Namespace) -> int:
         if done:
             noun = "recording" if len(done) == 1 else "recordings"
             print(f"skipping {len(done)} {noun} already transcribed (give --again to transcribe them again)")
-            sources = [source for source in sources if source not in done]
+            recordings = [recording for recording in recordings if recording.source not in done]
+            sources = [recording.source for recording in recordings]
         if not sources:
             print("nothing to transcribe")
             return 0
+    for recording in recordings:
+        if recording.parts is not None:
+            print(f"{recording.source.name}: a recording in {len(recording.parts)} parts, transcribed as one")
     models = find_models(args.models)
     plan = current_plan(args.device, args.threads)
     try:
@@ -259,7 +265,10 @@ def command_run(args: argparse.Namespace) -> int:
     live = LiveLine(sys.stdout)
 
     def report(index: int, total: int, p: Progress) -> None:
-        live.update(f"[{index + 1}/{total}] {sources[index].name}", p)
+        label = sources[index].name
+        if recordings[index].parts is not None:
+            label += f" ({len(recordings[index].parts)} parts)"
+        live.update(f"[{index + 1}/{total}] {label}", p)
 
     def outcome(index: int, _outcome) -> None:
         live.finish()
@@ -278,6 +287,7 @@ def command_run(args: argparse.Namespace) -> int:
         on_outcome=outcome,
         speakers=args.speakers,
         threshold=args.threshold,
+        parts=[recording.parts for recording in recordings],
     )
     live.finish()
     for outcome in result.outcomes:

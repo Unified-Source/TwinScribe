@@ -168,8 +168,13 @@ def build_document(
     output_base: str | None = None,
     scenes: Sequence[Any] = (),
     non_speech: Mapping[str, Any] | None = None,
+    parts: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the transcript document from the parts of a run.
+
+    `parts`, for a recording written in parts, lists each file with its name, digest, size,
+    offset and duration; `source` then names the first file and carries the digest of the
+    parts' digests joined and their sizes summed.
 
     `output_base` is the name the sibling outputs share (normally the recording's stem); the
     text and Word renderers use it to point at the review list. `scenes` are the non-speech
@@ -201,6 +206,7 @@ def build_document(
             "bytes": int(source_bytes),
             "video": bool(video),
             "outputs": output_base or source_name.rsplit(".", 1)[0],
+            **({"parts": [dict(part) for part in parts]} if parts else {}),
         },
         "duration_s": float(duration_s),
         "engines": {

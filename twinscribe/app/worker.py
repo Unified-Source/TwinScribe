@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from twinscribe.hardware import Plan
 from twinscribe.models import ModelSet
-from twinscribe.pipeline import BatchResult, Engines, Outcome, Progress, run_batch
+from twinscribe.pipeline import BatchResult, Engines, Outcome, Parts, Progress, run_batch
 from twinscribe.profiles import Profile
 
 
@@ -46,10 +46,14 @@ class PipelineWorker(QThread):
         plan: Plan | None = None,
         speakers: int | None = None,
         threshold: float | None = None,
+        parts: Sequence[Parts | None] | None = None,
     ) -> None:
         super().__init__(parent)
         if len(rows) != len(sources):
             raise ValueError("rows and sources must have the same length")
+        if parts is not None and len(parts) != len(sources):
+            raise ValueError("parts and sources must have the same length")
+        self._parts = list(parts) if parts is not None else None
         self._plan = plan
         self._speakers = speakers
         self._threshold = threshold
@@ -104,6 +108,7 @@ class PipelineWorker(QThread):
                 on_partial=on_partial,
                 speakers=self._speakers,
                 threshold=self._threshold,
+                parts=self._parts,
             )
         except Exception as exc:  # noqa: BLE001 - a thread must not die silently
             result = BatchResult()

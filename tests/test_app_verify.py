@@ -836,10 +836,12 @@ class FakeCopy(QObject):
     finished = Signal()
     target: Path | None = None
     reason: str | None = None
+    parts_seen: list[object] = []
 
-    def __init__(self, source: Path, parent=None) -> None:
+    def __init__(self, source: Path, parts=None, parent=None) -> None:
         super().__init__(parent)
         self.source = Path(source)
+        FakeCopy.parts_seen.append(parts)
 
     def start(self) -> None:
         if FakeCopy.reason is not None:
@@ -869,3 +871,27 @@ def test_the_screen_plays_a_decoded_copy_when_the_player_cannot_read_the_recordi
     again._on_player_error(QMediaPlayer.Error.FormatError, "no decoder")
     assert not again.audio_available and "ffmpeg exited" in again.status_label.text()
     again.close()
+
+
+def test_the_screen_hands_a_review_set_in_parts_to_the_copy(app: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from twinscribe.pipeline import Parts
+
+    audio.synthetic_wav(tmp_path / "call.wav", 30.0)
+    audio.synthetic_wav(tmp_path / "next.wav", 30.0)
+    review_path = write_review(tmp_path)
+    doc = json.loads(review_path.read_text(encoding="utf-8"))
+    doc["parts"] = [{"audio": "call.wav", "offset_s": 0.0}, {"audio": "next.wav", "offset_s": 40.0}]
+    review_path.write_text(json.dumps(doc), encoding="utf-8")
+    loaded = verify.load_review_set(review_path)
+    assert loaded.parts == (("call.wav", 0.0), ("next.wav", 40.0))
+    window = make_window(app, review_path)
+    if window.player is None:
+        window.close()
+        pytest.skip("no media player on this platform")
+    copy = audio.synthetic_wav(tmp_path / "copy.wav", 70.0)
+    FakeCopy.target, FakeCopy.reason, FakeCopy.parts_seen = copy, None, []
+    monkeypatch.setattr(verify, "PlayableCopy", FakeCopy)
+    window._on_player_error(QMediaPlayer.Error.FormatError, "no decoder")
+    assert FakeCopy.parts_seen == [Parts((tmp_path / "call.wav", tmp_path / "next.wav"), (0.0, 40.0))]
+    assert Path(window.player.source().toLocalFile()) == copy
+    window.close()

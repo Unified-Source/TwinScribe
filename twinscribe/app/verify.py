@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from twinscribe.app.playable import PlayableCopy, copy_is_current, play_dir, playable_copy_path
+from twinscribe.pipeline import Parts
 from twinscribe.amend import listener_line_for, resolutions_from_document
 from twinscribe.app.app_icon import app_icon
 from twinscribe.app.theme import Theme, apply_theme, theme_for
@@ -122,6 +123,7 @@ class ReviewSet:
     transcript: tuple[TranscriptWord, ...]
     marks: tuple[ReviewMark, ...]
     evaluation: dict | None
+    parts: tuple[tuple[str, float], ...] = ()
 
     @property
     def has_reference(self) -> bool:
@@ -190,6 +192,10 @@ def review_set_from_dict(doc: dict) -> ReviewSet:
         transcript=transcript,
         marks=marks,
         evaluation=evaluation if isinstance(evaluation, dict) else None,
+        parts=tuple(
+            (str(part["audio"]), float(part["offset_s"]))
+            for part in (doc.get("parts") or []) if isinstance(part, dict) and "audio" in part
+        ),
     )
 
 
@@ -992,7 +998,13 @@ class VerifyWindow(QMainWindow):
         if self.player is None or self._copy_started or self.audio_path.parent == play_dir():
             return False
         self._copy_started = True
-        self._copy = PlayableCopy(self.audio_path, self)
+        parts = None
+        if self.review.parts:
+            parts = Parts(
+                tuple(resolve_audio_path(self.review_path, audio) for audio, _ in self.review.parts),
+                tuple(offset for _, offset in self.review.parts),
+            )
+        self._copy = PlayableCopy(self.audio_path, parts, self)
         self._copy.ready.connect(self._on_playable_copy_ready)
         self._copy.failed.connect(self._on_playable_copy_failed)
         self.set_status(f"The player cannot read this recording ({reason}); decoding a copy to play.")

@@ -149,7 +149,9 @@ of court and interview recording systems, an AVI container whose sound is in a c
 decoder reads. `unread_types(paths)` names the extensions of what was left out, most frequent
 first, and `describe_unread` phrases them, so that a folder which yields no recording is
 explained ("the files there are of types .trs and .log, which are not read") rather than
-reported empty, by the command line and by the window alike.
+reported empty, by the command line and by the window alike. `discover_recordings` lists
+recordings rather than files: the parts a recorder wrote for one session become one
+recording (`recording_parts.md`).
 
 ## 5a. The machine and the plan
 

@@ -5,12 +5,14 @@ beside itself.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
 
 HOME_ENV = "TWINSCRIBE_HOME"
 APP_FOLDER = "twinscribe"
+PLAY_FOLDER = "play"
 
 
 def default_app_home(platform_name: str | None = None, environ: dict[str, str] | None = None) -> Path:
@@ -74,3 +76,27 @@ def runs_dir() -> Path:
     folder = app_home() / "runs"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def play_dir() -> Path:
+    """Folder for the playable copies of recordings the platform's player cannot read, and for
+    the joined audio of recordings in parts; created when absent."""
+    folder = app_home() / PLAY_FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def playable_copy_path(source: str | os.PathLike[str]) -> Path:
+    """Where the playable copy of a recording goes: its stem and a digest of its resolved path,
+    so that two recordings of one name in two folders keep two copies."""
+    key = os.path.normcase(str(Path(source).resolve()))
+    tag = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+    return play_dir() / f"{Path(source).stem}.{tag}.wav"
+
+
+def copy_is_current(source: str | os.PathLike[str], copy: Path) -> bool:
+    """A copy counts when it exists and is not older than the recording it was made from."""
+    try:
+        return copy.is_file() and copy.stat().st_mtime >= Path(source).stat().st_mtime
+    except OSError:
+        return False

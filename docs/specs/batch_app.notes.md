@@ -68,9 +68,9 @@ extended; tests `tests/test_models.py`, `test_profiles.py`, `test_labelling.py`,
   gave real sound); the `.trs` is a UTF-16 XML index of the session's media files with their
   start and end times. The extension is now on the list, and a folder that yields nothing
   names the types it holds. The recorder writes a session as consecutive files with the
-  session's start time in each file's header, one file every five minutes; those parts are
-  still transcribed one by one, and joining them into one recording is the next piece of
-  work. The platform's media player has no decoder for that sound, which is why the playable
+  session's start time in each file's header, one file every five minutes; joining those
+  parts into one recording is `recording_parts.md`. The platform's media player has no
+  decoder for that sound, which is why the playable
   copy below exists; it was found by reading the format, not by running the window on the
   files, whose content is not the repository's to hold.
 - The playable copy: a recording the platform's player cannot read is decoded once, in a

@@ -171,8 +171,14 @@ python -m twinscribe app <folder with the recordings>
   an AVI container whose sound is in a codec the decoder reads, are now taken as recordings;
   a folder that yields no recording says which file types it holds instead of reporting
   nothing; and a recording the window's player cannot read is decoded once to a playable
-  copy and played from that, in the window and in the verification screen. A session written
-  as consecutive five-minute files is still transcribed file by file.
+  copy and played from that, in the window and in the verification screen.
+- **2026-09-25, a recording in parts.** A session that a recorder wrote as consecutive files,
+  each header carrying the moment it started, is transcribed as one recording: the parts are
+  joined at their header times, a pause between files stays a pause, and one transcript, one
+  review list and one entry in the window come out, named by the first file; the joined
+  audio is kept for playback. Files that follow one another within fifteen minutes join;
+  `--no-join` on the command line transcribes every file on its own
+  (`docs/specs/recording_parts.md`). Version 0.0.4.
 - **2026-09-18, the portable folder on the Releases page.** The folder that runs with nothing
   installed and nothing fetched, the models of the Standard level inside, is published as
   parts, since a release carries files of at most two gibibytes and the folder is larger: the

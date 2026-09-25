@@ -328,8 +328,12 @@ def review_set(
     marks: list[Mark],
     reference: list[Word] | None = None,
     reference_speakers: list[str] | None = None,
+    parts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The document the verification screen reads.
+
+    `parts`, for a recording written in parts, lists each file's audio reference and its
+    offset in seconds, so that the screen can rebuild the joined audio when its copy is gone.
 
     reference_words (count in the span), reference_speakers (distinct labels in the span, in
     order of first appearance) and evaluation are filled only when a reference is supplied;
@@ -358,6 +362,8 @@ def review_set(
         "marks": [_mark_entry(mark) for mark in marks],
         "evaluation": None,
     }
+    if parts:
+        doc["parts"] = [{"audio": str(part["audio"]), "offset_s": float(part["offset_s"])} for part in parts]
     if reference is not None:
         reference_index = _Intervals((w.start, w.end) for w in reference)
         for entry, mark in zip(doc["marks"], marks):

@@ -20,6 +20,7 @@ def test_parser_commands(tmp_path: Path) -> None:
     assert run.no_recurse is True and run.device == "cuda" and run.speakers == 3 and run.threshold == 1.2
     assert parser.parse_args(["run", "x"]).device == "auto" and parser.parse_args(["run", "x"]).speakers is None
     assert parser.parse_args(["run", "x"]).threshold is None
+    assert parser.parse_args(["run", "x"]).no_join is False and parser.parse_args(["run", "x", "--no-join"]).no_join is True
     with pytest.raises(SystemExit):
         parser.parse_args(["run", "x", "--threshold", "0"])
     with pytest.raises(SystemExit):

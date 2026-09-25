@@ -11,9 +11,12 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import struct
 import subprocess
 import wave
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -216,6 +219,108 @@ def sha256_of(path: PathLike, progress: Callable[[float], None] | None = None) -
     if progress is not None:
         progress(1.0)
     return digest.hexdigest()
+
+
+# ----- containers and joins -----------------------------------------------------------------
+
+_RIFF_HEADER_BYTES = 1 << 16
+_FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=timezone.utc)
+
+
+@dataclass(frozen=True)
+class MediaFacts:
+    """What a container's header says: when the recorder started the file (UTC) and how long
+    it runs; either is None when the header does not say."""
+
+    start_utc: datetime | None
+    duration_s: float | None
+
+
+def _riff_chunks(data: bytes, pos: int, end: int):
+    """The chunks between pos and end as (tag, body), descending into LIST chunks except the
+    movie data, which is not a header and is left unread."""
+    while pos + 8 <= end:
+        tag = data[pos:pos + 4]
+        size = struct.unpack_from("<I", data, pos + 4)[0]
+        body = pos + 8
+        if tag == b"LIST":
+            if data[body:body + 4] == b"movi":
+                return
+            yield from _riff_chunks(data, body + 4, min(end, body + size))
+        else:
+            yield tag, data[body:min(end, body + size)]
+        pos = body + size + (size & 1)
+
+
+def avi_facts(path: PathLike) -> MediaFacts:
+    """The start time and duration an AVI header carries.
+
+    Court and interview recorders write the moment each file started as a UTC FILETIME in a
+    TUTC chunk of the header. The duration is the audio stream's length over its rate from
+    the stream header, else the frame count times the frame time from the main header. A
+    file that is not an AVI gives no facts.
+    """
+    with open(path, "rb") as handle:
+        head = handle.read(_RIFF_HEADER_BYTES)
+    if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"AVI ":
+        return MediaFacts(None, None)
+    start: datetime | None = None
+    audio_s: float | None = None
+    frames_s: float | None = None
+    for tag, body in _riff_chunks(head, 12, len(head)):
+        if tag == b"TUTC" and len(body) >= 8:
+            start = _FILETIME_EPOCH + timedelta(microseconds=struct.unpack_from("<Q", body, 0)[0] // 10)
+        elif tag == b"avih" and len(body) >= 20:
+            micros, _, _, _, frames = struct.unpack_from("<IIIII", body, 0)
+            if micros and frames:
+                frames_s = frames * micros / 1e6
+        elif tag == b"strh" and len(body) >= 36 and body[:4] == b"auds" and audio_s is None:
+            scale, rate, _, length = struct.unpack_from("<IIII", body, 20)
+            if rate:
+                audio_s = length * scale / rate
+    return MediaFacts(start, audio_s if audio_s is not None else frames_s)
+
+
+def _frames_of(path: PathLike) -> int:
+    with _open_checked(path) as handle:
+        return handle.getnframes()
+
+
+def join_wavs(parts: Sequence[tuple[PathLike, float]], dst: PathLike) -> float:
+    """Write the 16 kHz mono WAVs of `parts` into one WAV at dst, each placed at its offset in
+    seconds from the start, in order: silence fills a gap, and a part that begins before the
+    previous one ends cuts the previous one short at its own start. Returns the duration
+    written, in seconds.
+    """
+    if not parts:
+        raise ValueError("join_wavs needs at least one part")
+    starts = [int(round(float(offset) * SAMPLE_RATE)) for _, offset in parts]
+    if any(later < earlier for earlier, later in zip(starts, starts[1:])):
+        raise ValueError("parts must be given in order of their offsets")
+    lengths = [_frames_of(path) for path, _ in parts]
+    for index in range(len(parts) - 1):
+        lengths[index] = max(0, min(lengths[index], starts[index + 1] - starts[index]))
+    silence = bytes(SAMPLE_RATE * SAMPLE_WIDTH_BYTES)
+    written = 0
+    with wave.open(str(dst), "wb") as out:
+        out.setnchannels(CHANNELS)
+        out.setsampwidth(SAMPLE_WIDTH_BYTES)
+        out.setframerate(SAMPLE_RATE)
+        for (path, _), start, length in zip(parts, starts, lengths):
+            while written < start:
+                step = min(SAMPLE_RATE, start - written)
+                out.writeframes(silence[: step * SAMPLE_WIDTH_BYTES])
+                written += step
+            with _open_checked(path) as src:
+                left = length
+                while left > 0:
+                    chunk = src.readframes(min(left, SAMPLE_RATE))
+                    if not chunk:
+                        break
+                    out.writeframes(chunk)
+                    left -= len(chunk) // SAMPLE_WIDTH_BYTES
+                written += length - max(left, 0)
+    return written / float(SAMPLE_RATE)
 
 
 def synthetic_wav(path: PathLike, seconds: float, tone_hz: float = 440.0) -> Path:

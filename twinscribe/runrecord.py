@@ -192,6 +192,7 @@ class RunRecord:
     load_verdict: LoadVerdict | None = None
     failures: tuple[Failure, ...] = ()
     machine: dict[str, Any] = field(default_factory=machine_facts)
+    parts: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         # Accept plain (path, error_class, message) tuples and normalise them to Failure.
@@ -221,6 +222,7 @@ class RunRecord:
             "load_verdict": verdict,
             "failures": [dataclasses.asdict(failure) for failure in self.failures],
             "machine": dict(self.machine),
+            **({"parts": [dict(part) for part in self.parts]} if self.parts else {}),
         }
 
     def write(self, path: str | os.PathLike[str]) -> None:

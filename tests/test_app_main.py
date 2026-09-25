@@ -145,7 +145,11 @@ def test_timeline_peaks(app: QApplication) -> None:
 
 def test_read_document_facts(media: dict[str, Path], tmp_path: Path) -> None:
     facts = read_document_facts(output_paths(media["done"]).transcript)
-    assert facts == {"name": "call.wav", "bytes": 960044, "duration_s": 30.0, "speakers": 2, "marks": 2}
+    assert facts == {"name": "call.wav", "bytes": 960044, "parts": [], "duration_s": 30.0, "speakers": 2, "marks": 2}
+    # A document of a recording in parts names the first file and is matched by its size.
+    in_parts = {**facts, "bytes": 12, "parts": [{"name": "call.wav", "bytes": 960044}, {"name": "next.wav", "bytes": 5}]}
+    assert document_is_for(in_parts, media["done"])
+    assert not document_is_for({**in_parts, "parts": [{"name": "call.wav", "bytes": 1}]}, media["done"])
     # The document is this recording's: same name and, since both are known, same size.
     assert document_is_for(facts, media["done"])
     assert not document_is_for({**facts, "bytes": 12}, media["done"])
@@ -882,10 +886,12 @@ class FakeCopy(QObject):
     target: Path | None = None
     reason: str | None = None
     started: list[Path] = []
+    parts_seen: list[object] = []
 
-    def __init__(self, source: Path, parent=None) -> None:
+    def __init__(self, source: Path, parts=None, parent=None) -> None:
         super().__init__(parent)
         self.source = Path(source)
+        FakeCopy.parts_seen.append(parts)
 
     def start(self) -> None:
         FakeCopy.started.append(self.source)
@@ -937,5 +943,36 @@ def test_a_copy_made_earlier_is_played_on_selection(app: QApplication, tmp_path:
     audio.synthetic_wav(copy, 1.0)
     window.add_paths([media["fresh"]])
     app.processEvents()
+    assert Path(window.player.source().toLocalFile()) == copy
+    window.close()
+
+
+def test_a_folder_of_parts_is_one_entry_that_hands_its_parts_to_the_copy(app: QApplication, tmp_path: Path, home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from twinscribe import audio, pipeline
+
+    folder = tmp_path / "session"
+    folder.mkdir()
+    first = audio.synthetic_wav(folder / "room_0903.trm", 1.0)
+    second = audio.synthetic_wav(folder / "room_0907.trm", 1.0)
+    start = datetime(2026, 8, 26, 15, 3, 1, tzinfo=timezone.utc)
+    table = {"room_0903.trm": (start, 1.0), "room_0907.trm": (start + timedelta(seconds=1), 1.0)}
+    monkeypatch.setattr(pipeline, "recording_facts", lambda path: audio.MediaFacts(*table.get(path.name, (None, None))))
+    window = make_window(app, tmp_path)
+    assert window.add_paths([folder]) == 1
+    item = window.library_model.item(0)
+    assert item.parts is not None and [p.name for p in item.parts.paths] == ["room_0903.trm", "room_0907.trm"]
+    assert item.summary() == "2 parts  |  session"
+    if window.player is None:
+        window.close()
+        pytest.skip("no media player on this platform")
+    app.processEvents()
+    assert window._current_path == first
+    copy = audio.synthetic_wav(tmp_path / "copy.wav", 2.0)
+    FakeCopy.target, FakeCopy.reason, FakeCopy.started, FakeCopy.parts_seen = copy, None, [], []
+    monkeypatch.setattr(app_main, "PlayableCopy", FakeCopy)
+    window._on_player_error(QMediaPlayer.Error.FormatError, "no decoder")
+    assert FakeCopy.started == [first] and FakeCopy.parts_seen == [item.parts]
     assert Path(window.player.source().toLocalFile()) == copy
     window.close()

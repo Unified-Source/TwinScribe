@@ -33,7 +33,7 @@ from twinscribe.labelling import DEFAULT_MIN_RUN_S, DEFAULT_MIN_RUN_WORDS, build
 from twinscribe.models import KEY_AUDIO_TAGGER, KEY_EMBEDDING, KEY_SEGMENTATION, KEY_SILERO_VAD, ModelSet, spec_for
 from twinscribe.outputs import render_all
 from twinscribe.outputs.transcript_doc import build_document, overview_peaks, write_document
-from twinscribe.paths import runs_dir, work_dir
+from twinscribe.paths import playable_copy_path, runs_dir, work_dir
 from twinscribe.profiles import Profile, select as select_level, CHECK_EVERYWHERE, CHECK_GAPS
 from twinscribe.review import build_review, review_set, write_review_set, checking_windows
 from twinscribe.runrecord import Failure, RunRecord, utc_now, write_json_atomic
@@ -327,6 +327,111 @@ def describe_unread(types: Sequence[str]) -> str:
     return f"of types {', '.join(names[:-1])} and {names[-1]}, which are not read"
 
 
+# ----- recordings in parts -------------------------------------------------------------------
+
+JOIN_TOLERANCE_S = 2.0        # a part may begin this much before the previous one ends
+MAX_JOIN_GAP_S = 15 * 60.0    # a pause longer than this starts another recording
+TIMED_EXTENSIONS: frozenset[str] = frozenset({".avi", ".trm"})
+
+
+@dataclass(frozen=True)
+class Parts:
+    """The files of one recording written in parts, in order, each with its offset in seconds
+    from the recording's start, taken from the times the recorder wrote in the headers."""
+
+    paths: tuple[Path, ...]
+    offsets_s: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.paths) != len(self.offsets_s) or not self.paths:
+            raise ValueError("parts need one offset per path and at least one path")
+        if any(later < earlier for earlier, later in zip(self.offsets_s, self.offsets_s[1:])):
+            raise ValueError("parts must be in order of their offsets")
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+
+@dataclass(frozen=True)
+class Recording:
+    """A recording as discovered: its file, or its first file with the parts that follow."""
+
+    source: Path
+    parts: Parts | None = None
+
+
+def recording_facts(path: Path) -> audio.MediaFacts:
+    """When a recording started and how long it runs, as its container says; only AVI files
+    carry a recorder's start time so far, so every other file has no facts."""
+    if path.suffix.lower() in TIMED_EXTENSIONS:
+        try:
+            return audio.avi_facts(path)
+        except (OSError, ValueError):
+            pass
+    return audio.MediaFacts(None, None)
+
+
+def group_parts(files: Sequence[Path]) -> list[Recording]:
+    """The recordings among files of one folder: files whose headers say when they started are
+    chained when each begins where the previous ended, with an overlap of up to
+    JOIN_TOLERANCE_S or a gap of up to MAX_JOIN_GAP_S, and share an extension; every other file,
+    and a chain of one, is a recording on its own. The result is ordered by first file."""
+    recordings: list[Recording] = []
+    timed: dict[str, list[tuple[Path, Any, float]]] = {}
+    for path in files:
+        facts = recording_facts(path)
+        if facts.start_utc is None or facts.duration_s is None:
+            recordings.append(Recording(path))
+            continue
+        timed.setdefault(path.suffix.lower(), []).append((path, facts.start_utc, float(facts.duration_s)))
+
+    def close(chain: list[tuple[Path, Any, float]]) -> None:
+        if len(chain) == 1:
+            recordings.append(Recording(chain[0][0]))
+        elif chain:
+            base = chain[0][1]
+            recordings.append(Recording(chain[0][0], Parts(
+                tuple(entry[0] for entry in chain),
+                tuple(float((entry[1] - base).total_seconds()) for entry in chain),
+            )))
+
+    for entries in timed.values():
+        entries.sort(key=lambda entry: (entry[1], os.path.normcase(entry[0].name)))
+        chain: list[tuple[Path, Any, float]] = []
+        for entry in entries:
+            if chain:
+                previous = chain[-1]
+                gap = (entry[1] - previous[1]).total_seconds() - previous[2]
+                if -JOIN_TOLERANCE_S <= gap <= MAX_JOIN_GAP_S:
+                    chain.append(entry)
+                    continue
+                close(chain)
+                chain = []
+            chain.append(entry)
+        close(chain)
+    recordings.sort(key=lambda r: (os.path.normcase(str(r.source.parent)), os.path.normcase(r.source.name)))
+    return recordings
+
+
+def discover_recordings(paths: Iterable[str | os.PathLike[str]], recursive: bool = True, join: bool = True) -> list[Recording]:
+    """The recordings under files and folders: the media files, with the parts of one recording
+    joined into one entry when `join` holds. Only a folder with at least two files of one
+    extension can hold parts, so the headers of other files are not read."""
+    files = discover_media(paths, recursive=recursive)
+    if not join:
+        return [Recording(path) for path in files]
+    by_folder: dict[str, list[Path]] = {}
+    for path in files:
+        by_folder.setdefault(os.path.normcase(str(path.parent)), []).append(path)
+    recordings: list[Recording] = []
+    for folder_files in by_folder.values():
+        counts = Counter(path.suffix.lower() for path in folder_files)
+        recordings.extend(Recording(path) for path in folder_files if counts[path.suffix.lower()] < 2)
+        recordings.extend(group_parts([path for path in folder_files if counts[path.suffix.lower()] >= 2]))
+    recordings.sort(key=lambda r: (os.path.normcase(str(r.source.parent)), os.path.normcase(r.source.name)))
+    return recordings
+
+
 @dataclass(frozen=True)
 class Job:
     """One recording to process, with everything the pipeline needs to know.
@@ -354,6 +459,7 @@ class Job:
     preference: str = DEVICE_AUTO
     speakers: int | None = None
     threshold: float | None = None
+    parts: Parts | None = None
 
 
 @dataclass(frozen=True)
@@ -466,22 +572,94 @@ class _Reporter:
         return inner
 
 
-def _decode_source(job: Job, reporter: _Reporter, digest: str) -> tuple[Path, bool]:
-    """The 16 kHz mono WAV to feed the engines, and whether it is a temporary file."""
+def _engine_ready(path: Path) -> bool:
+    """Whether a file is already the engines' format (a 16 kHz mono 16-bit WAV)."""
+    if path.suffix.lower() != ".wav":
+        return False
+    try:
+        audio.duration_s(path)
+    except audio.AudioFormatError:
+        return False
+    return True
+
+
+def _decode_source(job: Job, reporter: _Reporter, digest: str) -> tuple[Path, bool, tuple[float, ...] | None]:
+    """The 16 kHz mono WAV to feed the engines, whether it is a temporary file, and, for a
+    recording in parts, the decoded duration of each part.
+
+    The parts are decoded one by one and written into one WAV, each at its offset, so that a
+    pause between two files stays a pause; the pieces are removed once joined.
+    """
     source = job.source
-    if source.suffix.lower() == ".wav":
-        try:
-            audio.duration_s(source)
-            return source, False
-        except audio.AudioFormatError:
-            pass
     folder = job.work_folder if job.work_folder is not None else work_dir()
+    if job.parts is not None:
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / f"{source.stem}.{digest[:12]}.16k.wav"
+        pieces: list[tuple[Path, float]] = []
+        made: list[Path] = []
+        count = len(job.parts)
+        try:
+            for index, (part, offset) in enumerate(zip(job.parts.paths, job.parts.offsets_s)):
+                reporter.report("decode", index / count, f"Decoding part {index + 1} of {count} ({human_size(part.stat().st_size)} to read)")
+                if _engine_ready(part):
+                    pieces.append((part, offset))
+                    continue
+                piece = folder / f"{source.stem}.{digest[:12]}.part{index + 1}.16k.wav"
+                audio.decode_to_wav(part, piece)
+                pieces.append((piece, offset))
+                made.append(piece)
+            durations = tuple(audio.duration_s(piece) for piece, _ in pieces)
+            audio.join_wavs(pieces, target)
+        finally:
+            for piece in made:
+                try:
+                    piece.unlink()
+                except OSError:
+                    pass
+        reporter.report("decode", 1.0)
+        return target, True, durations
+    if _engine_ready(source):
+        return source, False, None
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{source.stem}.{digest[:12]}.16k.wav"
     reporter.report("decode", 0.0, f"Decoding the audio ({human_size(source.stat().st_size)} to read)")
     audio.decode_to_wav(source, target)
     reporter.report("decode", 1.0)
-    return target, True
+    return target, True, None
+
+
+def _digest_parts(job: Job, reporter: _Reporter) -> tuple[str, int, list[str], list[int]]:
+    """The digest and size of a recording: the file's own, or for parts the digest of the
+    parts' digests joined and their sizes summed, with each part's own beside."""
+    source = job.source
+    if job.parts is None:
+        reporter.report("digest", 0.0)
+        digest = audio.sha256_of(source, progress=reporter.stage_fn("digest"))
+        size = source.stat().st_size
+        reporter.report("digest", 1.0)
+        return digest, size, [digest], [size]
+    digests: list[str] = []
+    sizes: list[int] = []
+    count = len(job.parts)
+    for index, part in enumerate(job.parts.paths):
+        reporter.report("digest", index / count)
+        digests.append(audio.sha256_of(part))
+        sizes.append(part.stat().st_size)
+    reporter.report("digest", 1.0)
+    return hashlib.sha256("".join(digests).encode("ascii")).hexdigest(), sum(sizes), digests, sizes
+
+
+def part_records(job: Job, digests: Sequence[str], sizes: Sequence[int], durations: Sequence[float] | None) -> list[dict[str, Any]] | None:
+    """One record per part for the document and the run record, or None for a single file."""
+    if job.parts is None:
+        return None
+    return [
+        {"name": path.name, "sha256": digest, "bytes": int(size), "offset_s": float(offset), "duration_s": float(duration) if duration is not None else None}
+        for path, digest, size, offset, duration in zip(
+            job.parts.paths, digests, sizes, job.parts.offsets_s,
+            durations if durations is not None else [None] * len(job.parts),
+        )
+    ]
 
 
 def human_size(size: int) -> str:
@@ -543,12 +721,9 @@ def process_file(
     wav: Path | None = None
     temporary = False
     try:
-        reporter.report("digest", 0.0)
-        digest = audio.sha256_of(source, progress=reporter.stage_fn("digest"))
-        size = source.stat().st_size
-        reporter.report("digest", 1.0)
-
-        wav, temporary = _decode_source(job, reporter, digest)
+        digest, size, part_digests, part_sizes = _digest_parts(job, reporter)
+        wav, temporary, part_durations = _decode_source(job, reporter, digest)
+        parts = part_records(job, part_digests, part_sizes, part_durations)
         models = job.models
         profile = job.profile
 
@@ -717,6 +892,7 @@ def process_file(
             source_sha256=digest,
             source_bytes=size,
             video=is_video(source),
+            parts=parts,
             output_base=paths.transcript.name[: -len(".transcript.json")],
             duration_s=audio_s,
             profile=profile.name,
@@ -733,8 +909,14 @@ def process_file(
         )
         write_document(document, paths.transcript)
         render_all(document, paths.text, paths.docx, paths.subtitles, author=job.author)
-        audio_reference = source.name if job.out_dir is None else str(source.resolve())
-        write_review_set(review_set(published_kept, detector, audio_reference, marks), paths.review)
+        def reference(path: Path) -> str:
+            return path.name if job.out_dir is None else str(path.resolve())
+
+        audio_reference = reference(source)
+        review_parts = None
+        if job.parts is not None:
+            review_parts = [{"audio": reference(path), "offset_s": float(offset)} for path, offset in zip(job.parts.paths, job.parts.offsets_s)]
+        write_review_set(review_set(published_kept, detector, audio_reference, marks, parts=review_parts), paths.review)
         reporter.report("outputs", 0.7)
 
         versions: dict[str, str] = {}
@@ -814,6 +996,7 @@ def process_file(
             started_utc=started_utc,
             ended_utc=utc_now(),
             load_verdict=load.verdict(before, after),
+            parts=tuple(parts) if parts else (),
             failures=tuple(failures),
         )
         record.write(paths.run)
@@ -831,7 +1014,15 @@ def process_file(
         _write_failure_record(job, paths, started_utc, exc)
         raise
     finally:
-        if wav is not None and temporary and not job.keep_audio:
+        if wav is not None and temporary and job.parts is not None:
+            # No single file holds the whole recording: the joined audio is kept as its
+            # playable copy, where the window and the verification screen look for one.
+            try:
+                copy = playable_copy_path(source)
+                os.replace(wav, copy)
+            except OSError:
+                pass
+        elif wav is not None and temporary and not job.keep_audio:
             try:
                 wav.unlink()
             except OSError:
@@ -932,8 +1123,12 @@ def run_batch(
     speakers: int | None = None,
     history_path: str | os.PathLike[str] | None = None,
     threshold: float | None = None,
+    parts: Sequence[Parts | None] | None = None,
 ) -> BatchResult:
     """Process recordings one after another, never stopping for a failure.
+
+    `parts`, when given, is parallel to `sources`: the parts of each recording written in
+    parts, None for a recording that is one file.
 
     A cancellation stops the batch; the recordings not reached are recorded as cancelled. The
     batch record lists every recording with its outputs or its error. on_outcome, when given,
@@ -978,6 +1173,7 @@ def run_batch(
             preference=preference,
             speakers=speakers,
             threshold=threshold,
+            parts=parts[index] if parts is not None else None,
         )
         started = time.perf_counter()
 

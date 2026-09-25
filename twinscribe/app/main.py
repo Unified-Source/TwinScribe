@@ -105,7 +105,7 @@ from twinscribe.outputs.transcript_doc import (
     write_document,
 )
 from twinscribe.app.playable import PlayableCopy, copy_is_current, play_dir, playable_copy_path
-from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, Progress, describe_unread, discover_media, output_paths, unread_types
+from twinscribe.pipeline import MEDIA_EXTENSIONS, Engines, FileResult, Parts, Progress, describe_unread, discover_media, output_paths, unread_types
 from twinscribe.profiles import ModelsMissing, Profile, available_profiles, profile_for, select as select_level
 from twinscribe.runrecord import write_json_atomic
 
@@ -874,7 +874,7 @@ class MainWindow(QMainWindow):
             self._show_job_card(item, row if row is not None else 0)
         else:
             self._show_transcript_pane()
-        self._set_source(item.path)
+        self._set_source(item.path, item.parts)
 
     def _show_document(self, item: MediaItem, doc: dict[str, Any]) -> None:
         """Lay out a transcript document for the recording: the pane with the review session
@@ -1317,6 +1317,7 @@ class MainWindow(QMainWindow):
         self.library_model.set_queued(chosen)
         self.again_button.setEnabled(False)
         sources = [self.library_model.item(row).path for row in chosen]
+        parts = [self.library_model.item(row).parts for row in chosen]
         self.worker = PipelineWorker(
             chosen,
             sources,
@@ -1331,6 +1332,7 @@ class MainWindow(QMainWindow):
             plan=plan,
             speakers=self.settings.speakers_or_none,
             threshold=self.settings.threshold_or_none,
+            parts=parts,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.partial.connect(self._on_partial)
@@ -1568,7 +1570,7 @@ class MainWindow(QMainWindow):
 
     # ----- playback -------------------------------------------------------------------
 
-    def _set_source(self, path: Path) -> None:
+    def _set_source(self, path: Path, parts: Parts | None = None) -> None:
         if self.player is not None and self._current_path is not None and self._current_path == path:
             # The recording already in the player: laid out again, not loaded again, so the
             # readout, the playhead and the nudge base stay where the player is.
@@ -1585,6 +1587,7 @@ class MainWindow(QMainWindow):
             self.player_bar.set_available(False)
             return
         self._current_path = path
+        self._current_parts = parts
         self._player_error = None
         self._copy_for = None
         self.player.stop()
@@ -1746,7 +1749,7 @@ class MainWindow(QMainWindow):
         if self.player is None or path is None or getattr(self, "_copy_for", None) == path or path.parent == play_dir():
             return False
         self._copy_for = path
-        copy = PlayableCopy(path, self)
+        copy = PlayableCopy(path, getattr(self, "_current_parts", None), self)
         copy.ready.connect(self._on_playable_copy_ready)
         copy.failed.connect(self._on_playable_copy_failed)
         copies: list[PlayableCopy] = self.__dict__.setdefault("_copies", [])

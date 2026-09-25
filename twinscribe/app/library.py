@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOpti
 from twinscribe.app.icons import paint_icon
 from twinscribe.app.theme import Theme, theme_for, with_alpha
 from twinscribe.outputs.transcript_doc import TRANSCRIPT_SCHEMA, clock, speaker_count
-from twinscribe.pipeline import discover_media, folder_cache, is_video, output_paths
+from twinscribe.pipeline import Parts, discover_recordings, folder_cache, is_video, output_paths
 
 STATUS_NEW = "new"
 STATUS_QUEUED = "queued"
@@ -45,6 +45,7 @@ class MediaItem:
     marks: int | None = None
     transcript_path: Path | None = None
     error: str = ""
+    parts: Parts | None = None
 
     @property
     def name(self) -> str:
@@ -67,13 +68,16 @@ class MediaItem:
         if self.status == STATUS_QUEUED:
             return "Queued"
         if self.status == STATUS_DONE:
-            parts: list[str] = []
+            pieces: list[str] = []
+            if self.parts is not None:
+                pieces.append(f"{len(self.parts)} parts")
             if self.speakers is not None:
-                parts.append(f"{self.speakers} speaker" + ("" if self.speakers == 1 else "s"))
+                pieces.append(f"{self.speakers} speaker" + ("" if self.speakers == 1 else "s"))
             if self.marks is not None:
-                parts.append(f"{self.marks} to review" if self.marks else "nothing to review")
-            return "  |  ".join(parts) if parts else "Transcribed"
-        return self.path.parent.name or str(self.path.parent)
+                pieces.append(f"{self.marks} to review" if self.marks else "nothing to review")
+            return "  |  ".join(pieces) if pieces else "Transcribed"
+        folder = self.path.parent.name or str(self.path.parent)
+        return f"{len(self.parts)} parts  |  {folder}" if self.parts is not None else folder
 
 
 def read_document_facts(path: Path) -> dict[str, Any] | None:
@@ -95,6 +99,10 @@ def read_document_facts(path: Path) -> dict[str, Any] | None:
     return {
         "name": str(source.get("name", "")),
         "bytes": int(source.get("bytes", 0) or 0),
+        "parts": [
+            {"name": str(part.get("name", "")), "bytes": int(part.get("bytes", 0) or 0)}
+            for part in (source.get("parts") or []) if isinstance(part, dict)
+        ],
         "duration_s": float(doc.get("duration_s", 0.0)),
         "speakers": speaker_count(doc),
         "marks": int(doc.get("review", {}).get("marks", 0)),
@@ -111,7 +119,10 @@ def document_is_for(facts: dict[str, Any], path: Path) -> bool:
         size = path.stat().st_size
     except OSError:
         return True
-    return not facts["bytes"] or facts["bytes"] == size
+    # A document of a recording in parts names the first file; its size is the first part's.
+    parts = facts.get("parts") or []
+    expected = int(parts[0]["bytes"]) if parts else int(facts["bytes"])
+    return not expected or expected == size
 
 
 def path_key(path: Path) -> str:
@@ -186,16 +197,17 @@ class LibraryModel(QAbstractListModel):
 
     def add_paths(self, paths: Iterable[Path], recursive: bool = True) -> list[int]:
         """Add the recordings found under `paths`; returns the rows added (duplicates skipped)."""
-        found = discover_media(paths, recursive=recursive)
+        found = discover_recordings(paths, recursive=recursive)
         added: list[int] = []
         with folder_cache():
-            for path in found:
+            for recording in found:
+                path = recording.source
                 key = path_key(path)
                 if key in self._keys:
                     continue
                 row = len(self._items)
                 self.beginInsertRows(QModelIndex(), row, row)
-                self._items.append(MediaItem(path=path))
+                self._items.append(MediaItem(path=path, parts=recording.parts))
                 self._keys[key] = row
                 self.endInsertRows()
                 self.refresh_item(row)
