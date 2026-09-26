@@ -27,7 +27,10 @@ Companion to `packaging.md`. Records what was built, what was checked, and what 
   files, stored), the third 1.36 GB (the CUDA packages, 55 files); each well under the
   two-gibibyte limit. The second part comes out byte for byte the same from one build to the
   next, since its files are stored with the times the store gave them; the first and the
-  third carry the times of the build. Published with 0.0.3 beside the executables. Checked on
+  third carry the times of the build. Published with 0.0.3 beside the executables, and again
+  with 0.0.4 on 2026-09-26 from its own tag (the first part 6,475 files with the playable-copy
+  module inside, the second part the same file as before; the same checks, the parts unpacked
+  in 15 s, the store verified, the chapter transcribed through the launcher in 119 s). Checked on
   the desktop with an NVIDIA device, through the launchers only: the assembled folder gives
   its version and its check; the first part unzipped as a person would (54 s through the
   platform's own extraction) gives a folder whose check names the checker absent and no
